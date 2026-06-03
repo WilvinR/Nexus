@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const { MODULES, getGuildModuleStates, setModuleEnabled } = require('./modules');
 const { registerGuildConfigRoutes } = require('./guildConfigRoutes');
 const { registerAdminRoutes, logSystem, isBotOwner, getBotOwnerIds } = require('./adminRoutes');
+const { buildInviteUrl, getClientId } = require('./invite');
 
 let server = null;
 const userGuildCache = new Map();
@@ -10,27 +11,8 @@ function ownersOnly() {
   return process.env.DASHBOARD_OWNERS_ONLY !== 'false';
 }
 
-function getClientId() {
-  if (process.env.CLIENT_ID) return process.env.CLIENT_ID;
-  const token = process.env.DISCORD_TOKEN;
-  if (!token) return null;
-  try {
-    return Buffer.from(token.split('.')[0], 'base64').toString('utf8');
-  } catch {
-    return null;
-  }
-}
-
 function oauthCallbackUrl() {
   return process.env.OAUTH_REDIRECT_URI || 'https://nexus-bot.discloud.app/api/auth/callback';
-}
-
-function buildInviteUrl() {
-  if (process.env.DISCORD_INVITE_URL) return process.env.DISCORD_INVITE_URL;
-  const clientId = getClientId();
-  if (!clientId) return null;
-  const perms = process.env.DISCORD_INVITE_PERMISSIONS || '268568576';
-  return `https://discord.com/api/oauth2/authorize?client_id=${clientId}&permissions=${perms}&scope=bot%20applications.commands`;
 }
 
 function buildLoginUrl(redirectTo) {
@@ -226,7 +208,7 @@ function start(client, log, getDb, hooks = {}) {
       bot: client.user?.tag ?? null,
       ready: client.isReady?.() ?? false,
       guilds: client.guilds?.cache?.size ?? 0,
-      invite: buildInviteUrl(),
+      invite: buildInviteUrl() || null,
       loginUrl: buildLoginUrl(`${web}/dashboard.html`),
       webUrl: web || null,
     });

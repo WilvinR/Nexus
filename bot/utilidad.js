@@ -129,45 +129,26 @@ const commands = [
     async run(ix, { log, getDb }) {
       const msg = ix.options.getString('mensaje');
       try {
-        const { saveSuggestion } = require('./adminRoutes');
+        const { saveSuggestion, logSystem } = require('./adminRoutes');
         saveSuggestion(getDb, {
-          userId: ix.user.id,
+          userId: String(ix.user.id),
           username: ix.user.tag,
-          guildId: ix.guildId,
+          guildId: String(ix.guildId),
           guildName: ix.guild.name,
           content: msg,
         });
+        logSystem(getDb, 'info', `Sugerencia: ${ix.user.tag} en ${ix.guild.name}`, {
+          guildId: ix.guildId,
+          userId: ix.user.id,
+        });
       } catch (e) {
         log.warn(`Sugerencia DB: ${e.message}`);
+        return ix.reply({
+          content: '❌ No se pudo guardar la sugerencia. Avísale al administrador del bot.',
+          ephemeral: true,
+        });
       }
-      const ownerId = process.env.BOT_OWNER_ID;
-      let target = ownerId ? await ix.client.users.fetch(ownerId).catch(() => null) : null;
-      if (!target) {
-        try {
-          target = await ix.guild.fetchOwner();
-        } catch {
-          target = null;
-        }
-      }
-      if (!target) {
-        return ix.reply({ content: '❌ No se pudo enviar la sugerencia.', ephemeral: true });
-      }
-      const embed = new EmbedBuilder()
-        .setTitle('📩 Nueva sugerencia')
-        .setDescription(msg)
-        .setColor(Colors.Blue)
-        .addFields(
-          { name: 'Servidor', value: ix.guild.name, inline: true },
-          { name: 'Usuario', value: `${ix.user.tag}`, inline: true },
-        )
-        .setFooter({ text: `ID: ${ix.user.id}` });
-      try {
-        await target.send({ embeds: [embed] });
-        await ix.reply({ content: '✅ Sugerencia enviada. ¡Gracias!', ephemeral: true });
-      } catch (e) {
-        log.warn(`Sugerencia DM: ${e.message}`);
-        await ix.reply({ content: '❌ No pude enviar el mensaje al administrador.', ephemeral: true });
-      }
+      await ix.reply({ content: '✅ Sugerencia enviada. ¡Gracias!', ephemeral: true });
     },
   },
   {

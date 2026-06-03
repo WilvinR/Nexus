@@ -7,8 +7,12 @@ function apiUrl(path) {
   return `${NEXUS_API.replace(/\/$/, '')}${path}`;
 }
 
+function isValidInviteUrl(url) {
+  return typeof url === 'string' && url.includes('client_id=') && /scope=.*bot/.test(url);
+}
+
 function setInviteLinks(url) {
-  const invite = url || BOT_INVITE;
+  const invite = isValidInviteUrl(url) ? url : BOT_INVITE;
   for (const id of ['btn-invite', 'btn-invite-2']) {
     const el = document.getElementById(id);
     if (!el) continue;
@@ -32,7 +36,7 @@ async function loadPublicStats() {
       if (data.ok) {
         animateCount(el, data.guilds ?? 0);
         if (botEl) botEl.textContent = data.ready ? 'Online' : 'Conectando…';
-        if (data.invite) setInviteLinks(data.invite);
+        if (data.invite && isValidInviteUrl(data.invite)) setInviteLinks(data.invite);
         if (botEl && typeof data.guilds === 'number') {
           botEl.title = `${data.guilds} servidores con Nexus`;
         }

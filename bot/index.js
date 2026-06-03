@@ -23,6 +23,7 @@ const { moduleForInteraction, isModuleEnabled } = require('./modules');
 const commandSync = require('./commandSync');
 const { logError, logSystem, getBotOwnerIds } = require('./adminRoutes');
 const { logCommand, ensureGuildMeta, startStatsScheduler } = require('./stats');
+const { buildInviteUrl } = require('./invite');
 const modulos = [require('./registro'), kill, moderacion, eventos, musica, battle, bal, utilidad, mercado];
 commandSync.init(modulos, logs);
 
@@ -178,6 +179,9 @@ function getDb() {
     CREATE TABLE IF NOT EXISTS welcome_dm_sent (
       user_id TEXT PRIMARY KEY, sent_at INTEGER
     );
+    CREATE TABLE IF NOT EXISTS welcome_guild_sent (
+      guild_id TEXT PRIMARY KEY, sent_at INTEGER
+    );
     CREATE TABLE IF NOT EXISTS command_usage (
       day TEXT NOT NULL, guild_id TEXT NOT NULL, command_name TEXT NOT NULL,
       count INTEGER DEFAULT 0, PRIMARY KEY (day, guild_id, command_name)
@@ -269,33 +273,35 @@ client.on(Events.GuildCreate, async (g) => {
       joinedAt: g.joinedAt?.getTime?.() || Date.now(),
     });
     logSystem(getDb, 'info', `Bot añadido a ${g.name}`, { guildId: g.id });
+    welcomeGuildOwner(g, owner).catch(() => {});
   } catch {
     /* ignore */
   }
 });
 
-async function maybeWelcomeDm(ix) {
-  if (!ix.guildId || ix.user.bot) return;
-  const uid = String(ix.user.id);
-  const row = getDb().prepare('SELECT 1 FROM welcome_dm_sent WHERE user_id = ?').get(uid);
+async function welcomeGuildOwner(g, ownerUser) {
+  const gid = String(g.id);
+  const row = getDb().prepare('SELECT 1 FROM welcome_guild_sent WHERE guild_id = ?').get(gid);
   if (row) return;
+
+  const owner = ownerUser || (await g.fetchOwner().catch(() => null));
+  if (!owner?.user) return;
+
   const web = (process.env.WEB_URL || 'https://nexus-two-swart.vercel.app').replace(/\/$/, '');
-  const invite = process.env.DISCORD_INVITE_URL || 'https://discord.com/oauth2/authorize';
+  const invite = buildInviteUrl();
   const text =
-    '👋 Hola, soy **Nexus**.\n\n' +
-    'Soy un bot especializado en la gestión de gremios de **Albion Online**.\n\n' +
-    '**Funciones principales:**\n' +
-    '⚔️ Registro de kills y batallas\n' +
-    '📊 Estadísticas y seguimiento\n' +
-    '🛡️ Gestión de asistencia\n' +
-    '🏰 Herramientas para líderes de gremio\n' +
-    '🌐 Dashboard web\n\n' +
-    `🔗 [Invítame a tu servidor](${invite})\n` +
-    `🌐 [Visita nuestra página web](${web})`;
+    `👋 Gracias por añadir **Nexus** a **${g.name}**.\n\n` +
+    'Soy el bot de gestión para gremios de **Albion Online**: registro, killboard, batallas, mercado y más.\n\n' +
+    '**Primeros pasos:**\n' +
+    '⚔️ Activa módulos en el dashboard web\n' +
+    '📋 Configura registro con `/configurar_registro`\n' +
+    '📚 Lista de comandos con `/ayuda`\n\n' +
+    `🌐 [Abrir dashboard](${web}/dashboard.html)\n` +
+    `🔗 [Invitar Nexus a otro servidor](${invite})`;
+
   try {
-    const user = await ix.client.users.fetch(uid);
-    await user.send(text);
-    getDb().prepare('INSERT INTO welcome_dm_sent (user_id, sent_at) VALUES (?, ?)').run(uid, Date.now());
+    await owner.user.send(text);
+    getDb().prepare('INSERT INTO welcome_guild_sent (guild_id, sent_at) VALUES (?, ?)').run(gid, Date.now());
   } catch {
     /* DMs cerrados */
   }
@@ -304,7 +310,6 @@ async function maybeWelcomeDm(ix) {
 client.on(Events.InteractionCreate, async (ix) => {
   try {
     if (!ix.guildId) return;
-    maybeWelcomeDm(ix).catch(() => {});
     if (ix.isChatInputCommand()) {
       const sub = ix.options?.getSubcommand?.(false);
       const cmdName = sub ? `${ix.commandName}:${sub}` : ix.commandName;
