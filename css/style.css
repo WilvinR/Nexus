@@ -386,16 +386,6 @@ nav.site-nav.has-badge {
   position: relative;
 }
 
-.section-title::after {
-  content: '⚔ 🛡 🏹';
-  display: block;
-  margin-top: 14px;
-  font-size: 1rem;
-  letter-spacing: 12px;
-  opacity: 0.45;
-  filter: drop-shadow(0 0 8px var(--accent-glow));
-}
-
 .hex-frame {
   display: inline-flex;
   align-items: center;
@@ -1363,7 +1353,6 @@ footer {
   .hero { padding: 120px 20px 80px; }
   .hero-deco { display: none; }
   .albion-strip { font-size: 0.62rem; padding: 8px 14px; gap: 6px 10px; }
-  .section-title::after { letter-spacing: 6px; font-size: 0.85rem; }
   .stats-bar { gap: 40px; padding: 35px 20px; }
   .mod-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
   .dash-head { flex-direction: column; }
