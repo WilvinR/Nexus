@@ -106,24 +106,23 @@ function renderGuildGrid() {
 
 function renderModules(modList, guildId, modules) {
   modList.innerHTML = '';
-  const configurable = moduleModals?.CONFIG_MODULES || new Set();
+  const configurable = moduleModals?.CONFIG_MODULES || new Set(['registro', 'kill', 'battle', 'logs']);
   for (const m of modules) {
-    const card = document.createElement('div');
-    card.className = `mod-card ${m.enabled ? '' : 'mod-card-off'}`;
-    const canConfig = configurable.has(m.id) && m.enabled;
-    card.innerHTML = `
-      <div class="mod-card-info">
-        <span class="mod-card-name">${escapeHtml(m.name)}</span>
+    const row = document.createElement('div');
+    row.className = 'mod-row';
+    const showConfig = configurable.has(m.id);
+    row.innerHTML = `
+      <div class="mod-row-main">
+        <span>${escapeHtml(m.name)}</span>
         <small>${escapeHtml(m.description)}</small>
       </div>
-      <div class="mod-card-actions">
-        ${canConfig ? `<button type="button" class="btn btn-sm btn-config" data-mod="${m.id}">Configurar</button>` : ''}
+      <div class="mod-row-actions">
+        ${showConfig ? `<button type="button" class="btn btn-sm btn-config">Configurar</button>` : ''}
         <button type="button" class="toggle ${m.enabled ? 'on' : ''}" aria-label="${m.name}"></button>
       </div>
     `;
-    card.querySelector('.toggle').addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const btn = e.currentTarget;
+    row.querySelector('.toggle').addEventListener('click', async () => {
+      const btn = row.querySelector('.toggle');
       const next = !btn.classList.contains('on');
       const r = await api(`/api/guilds/${guildId}/modules/${m.id}`, {
         method: 'PATCH',
@@ -131,7 +130,6 @@ function renderModules(modList, guildId, modules) {
         body: JSON.stringify({ enabled: next }),
       });
       if (r.ok) {
-        btn.classList.toggle('on', next);
         const g = guildsData.find((x) => x.id === guildId);
         if (g?.modules) {
           const mod = g.modules.find((x) => x.id === m.id);
@@ -143,17 +141,12 @@ function renderModules(modList, guildId, modules) {
         alert(err.error || 'No se pudo guardar el cambio.');
       }
     });
-    if (canConfig) {
-      card.querySelector('.btn-config').addEventListener('click', () => {
-        if (window.openModuleConfig) window.openModuleConfig(m.id);
-      });
-      card.classList.add('mod-card-click');
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.toggle') || e.target.closest('.btn-config')) return;
+    if (showConfig) {
+      row.querySelector('.btn-config').addEventListener('click', () => {
         window.openModuleConfig?.(m.id);
       });
     }
-    modList.appendChild(card);
+    modList.appendChild(row);
   }
 }
 
@@ -166,11 +159,6 @@ async function loadDashboard() {
   }
   const me = await meRes.json();
   document.getElementById('user-label').textContent = `Conectado como ${me.user.username}`;
-  if (me.isOwner) {
-    const hint = document.getElementById('dash-hint');
-    hint.innerHTML +=
-      ' · <a href="admin.html" class="admin-link">Panel owner</a>';
-  }
   showDash();
   showGuildGrid();
 
@@ -186,9 +174,14 @@ async function loadDashboard() {
   }
 
   const data = await dashRes.json();
-  document.getElementById('dash-hint').textContent = data.ownersOnly
-    ? 'Toca un servidor para configurar módulos (solo dueños con Nexus instalado).'
-    : 'Toca un servidor para configurar módulos.';
+  const hintEl = document.getElementById('dash-hint');
+  let hint = data.ownersOnly
+    ? 'Toca un servidor. Activa o desactiva cualquier módulo; Registro, Killboard, Battle y Logs tienen configuración avanzada.'
+    : 'Toca un servidor. Activa o desactiva módulos; algunos incluyen botón Configurar.';
+  if (me.isOwner) {
+    hint += ' · <a href="admin.html" class="admin-link">Panel owner</a>';
+  }
+  hintEl.innerHTML = hint;
 
   if (!data.guilds.length) {
     guildsData = [];

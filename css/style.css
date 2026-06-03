@@ -532,6 +532,7 @@ footer {
   padding: 12px 0;
   border-top: 1px solid var(--border);
   gap: 12px;
+  text-align: left;
 }
 
 .mod-row span { color: var(--text); font-size: 1rem; }
@@ -571,27 +572,15 @@ footer {
   border: 1px dashed var(--border);
 }
 
-/* Módulos — tarjetas */
-.mod-cards { display: flex; flex-direction: column; gap: 0; padding: 8px 16px 16px; }
-
-.mod-card {
+/* Dashboard — filas de módulos (no usar .mod-card: reservado para la landing) */
+.mod-row-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 8px;
-  border-top: 1px solid var(--border);
-  cursor: default;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
-.mod-card:first-child { border-top: none; }
-.mod-card-click { cursor: pointer; }
-.mod-card-click:hover { background: rgba(0, 212, 255, 0.04); }
-.mod-card-off { opacity: 0.55; }
-
-.mod-card-name { color: #fff; font-size: 1.05rem; font-weight: 600; }
-.mod-card-info small { display: block; color: var(--muted); font-size: 0.8rem; }
-.mod-card-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.mod-row-main { flex: 1; min-width: 0; }
 
 .btn-sm { padding: 6px 12px; font-size: 0.85rem; }
 .btn-config { border: 1px solid var(--accent); color: var(--accent); background: transparent; }
