@@ -23,7 +23,7 @@ Nexus/
 ## Web (Vercel)
 
 1. Push a [github.com/WilvinR/Nexus](https://github.com/WilvinR/Nexus.git)
-2. Importa en Vercel → **Root Directory:** `web`
-3. Tras el deploy, en Discloud añade: `API_CORS=https://tu-dominio.vercel.app`
+2. Importa en Vercel (Root Directory: **vacío** / raíz del repo)
+3. Deploy — el build copia `web/` → `public/` automáticamente
 
-Ver `web/README.md` para más detalle.
+Tras el deploy, en Discloud añade: `API_CORS=https://tu-dominio.vercel.app`
