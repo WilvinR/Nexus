@@ -1,20 +1,16 @@
 # Nexus
 
-Bot de Discord para gremios de **Albion Online** + sitio web.
-
 ```
-Nexus/
-├── bot/     → Discloud (nexus-bot.discloud.app)
-└── web/     → Vercel
-    ├── index.html
-    ├── css/style.css
-    └── js/script.js
+index.html      ← landing (Vercel)
+css/style.css
+js/script.js
+bot/            ← Discord bot (Discloud)
 ```
 
 ## Vercel
 
-**Root Directory:** `web` · Framework: **Other** · Deploy
+Root Directory: **vacío**. Framework: **Other**. Redeploy.
 
 ## Discloud
 
-Sube la carpeta `bot/`. Variables: `DISCORD_TOKEN`, `API_ENABLED`, `API_SECRET`, `API_CORS` (URL de Vercel).
+Sube solo la carpeta `bot/`.
