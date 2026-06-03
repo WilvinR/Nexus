@@ -45,11 +45,20 @@
             <p class="guild-config-sub">Módulos de este servidor</p>
           </div>
         </header>
-        <div id="mod-list" class="mod-list"></div>
+        <div id="mod-list" class="mod-list mod-cards"></div>
       </section>
     </section>
   </main>
 
+  <div id="modal-backdrop" class="modal-backdrop hidden" aria-hidden="true">
+    <div class="modal" role="dialog" aria-labelledby="modal-title">
+      <button type="button" class="modal-close" id="modal-close" aria-label="Cerrar">×</button>
+      <h2 class="modal-title" id="modal-title"></h2>
+      <div id="modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="js/dashboard-modules.js"></script>
   <script src="js/dashboard.js"></script>
 </body>
 </html>

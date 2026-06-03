@@ -1,5 +1,7 @@
 const crypto = require('crypto');
 const { MODULES, getGuildModuleStates, setModuleEnabled } = require('./modules');
+const { registerGuildConfigRoutes } = require('./guildConfigRoutes');
+const { registerAdminRoutes, logSystem } = require('./adminRoutes');
 
 let server = null;
 const userGuildCache = new Map();
@@ -261,6 +263,7 @@ function start(client, log, getDb, hooks = {}) {
   });
 
   app.get('/api/me', sessionAuth, async (req, res) => {
+    const { isBotOwner } = require('./adminRoutes');
     res.json({
       ok: true,
       user: {
@@ -268,6 +271,7 @@ function start(client, log, getDb, hooks = {}) {
         username: req.session.username,
         avatar: req.session.avatar,
       },
+      isOwner: isBotOwner(req.session.user_id),
     });
   });
 
@@ -304,6 +308,10 @@ function start(client, log, getDb, hooks = {}) {
     if (!access.ok) return res.status(access.status).json({ error: access.error });
     const enabled = !!req.body?.enabled;
     setModuleEnabled(getDb, access.guildId, moduleId, enabled);
+    logSystem(getDb, 'info', `Módulo ${moduleId} ${enabled ? 'activado' : 'desactivado'}`, {
+      guildId: access.guildId,
+      extra: { moduleId, enabled },
+    });
     if (hooks.onModuleToggle) {
       hooks.onModuleToggle(access.guildId).catch((e) => log.warn(`Comandos ${access.guildId}: ${e.message}`));
     }
@@ -318,6 +326,12 @@ function start(client, log, getDb, hooks = {}) {
       modules: MODULES.map((m) => m.id),
     });
   });
+
+  registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, assertGuildAccess });
+  registerAdminRoutes(app, { client, getDb, log, sessionAuth });
+  if (hooks.syncGuildCommands) {
+    app.locals.commandSyncHook = { syncGuildCommands: hooks.syncGuildCommands };
+  }
 
   const port = Number(process.env.PORT || process.env.API_PORT) || 8080;
   server = app.listen(port, '0.0.0.0', () => {

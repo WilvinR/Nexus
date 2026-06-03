@@ -21,6 +21,8 @@ const utilidad = require('./utilidad');
 const mercado = require('./mercado');
 const { moduleForInteraction, isModuleEnabled } = require('./modules');
 const commandSync = require('./commandSync');
+const { logError, logSystem } = require('./adminRoutes');
+const { logCommand, ensureGuildMeta, startStatsScheduler } = require('./stats');
 const modulos = [require('./registro'), kill, moderacion, eventos, musica, battle, bal, utilidad, mercado];
 commandSync.init(modulos, logs);
 
@@ -153,6 +155,41 @@ function getDb() {
       transaction_type TEXT NOT NULL,
       created_at TEXT DEFAULT (datetime('now'))
     );
+    CREATE TABLE IF NOT EXISTS suggestions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT, username TEXT, guild_id TEXT, guild_name TEXT,
+      content TEXT, read INTEGER DEFAULT 0, created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS error_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      level TEXT, message TEXT, stack TEXT,
+      guild_id TEXT, user_id TEXT, resolved INTEGER DEFAULT 0, created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS system_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      level TEXT, message TEXT, guild_id TEXT, user_id TEXT,
+      meta_json TEXT, created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS announcements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT, body TEXT, guilds_target TEXT,
+      sent_count INTEGER, error_count INTEGER, created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS welcome_dm_sent (
+      user_id TEXT PRIMARY KEY, sent_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS command_usage (
+      day TEXT NOT NULL, guild_id TEXT NOT NULL, command_name TEXT NOT NULL,
+      count INTEGER DEFAULT 0, PRIMARY KEY (day, guild_id, command_name)
+    );
+    CREATE TABLE IF NOT EXISTS daily_snapshots (
+      day TEXT PRIMARY KEY, guild_count INTEGER, user_count INTEGER,
+      commands_count INTEGER, created_at INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS guild_meta (
+      guild_id TEXT PRIMARY KEY, premium INTEGER DEFAULT 0,
+      owner_id TEXT, owner_tag TEXT, joined_at INTEGER, notes TEXT
+    );
   `);
   const registroCols = db.prepare('PRAGMA table_info(registro_guilds)').all();
   if (registroCols.length && !registroCols.some((c) => c.name === 'registro_mode')) {
@@ -173,6 +210,7 @@ function purgeGuild(guildId) {
   d.prepare('DELETE FROM registro_users WHERE discord_guild_id = ?').run(id);
   d.prepare('DELETE FROM logs_config WHERE guild_id = ?').run(id);
   d.prepare('DELETE FROM kill_entities WHERE discord_guild_id = ?').run(id);
+  d.prepare('DELETE FROM guild_meta WHERE guild_id = ?').run(id);
   for (const m of modulos) if (m.onGuildRemove) m.onGuildRemove(guildId, ctx());
   if (logs.onGuildRemove) logs.onGuildRemove(guildId, ctx());
 }
@@ -201,7 +239,16 @@ client.once(Events.ClientReady, (c) => {
       for (const m of modulos) if (m.onInit) m.onInit(client, c);
       api.start(client, log, getDb, {
         onModuleToggle: (guildId) => commandSync.syncGuildCommands(client, getDb, log, guildId),
+        syncGuildCommands: (guildId) => commandSync.syncGuildCommands(client, getDb, log, guildId),
       });
+      logSystem(getDb, 'info', 'Bot iniciado', {});
+      startStatsScheduler(getDb, client, log);
+      for (const g of client.guilds.cache.values()) {
+        ensureGuildMeta(getDb, g.id, {
+          ownerId: g.ownerId,
+          joinedAt: g.joinedAt?.getTime?.() || Date.now(),
+        });
+      }
     } catch (e) {
       log.error(e);
     }
@@ -209,13 +256,57 @@ client.once(Events.ClientReady, (c) => {
   });
 });
 
-client.on(Events.GuildCreate, (g) => {
+client.on(Events.GuildCreate, async (g) => {
   commandSync.syncGuildCommands(client, getDb, log, g.id).catch((e) => log.warn(`Comandos ${g.id}: ${e.message}`));
+  try {
+    const owner = await g.fetchOwner().catch(() => null);
+    ensureGuildMeta(getDb, g.id, {
+      ownerId: g.ownerId,
+      ownerTag: owner?.user?.tag,
+      joinedAt: g.joinedAt?.getTime?.() || Date.now(),
+    });
+    logSystem(getDb, 'info', `Bot añadido a ${g.name}`, { guildId: g.id });
+  } catch {
+    /* ignore */
+  }
 });
+
+async function maybeWelcomeDm(ix) {
+  if (!ix.guildId || ix.user.bot) return;
+  const uid = String(ix.user.id);
+  const row = getDb().prepare('SELECT 1 FROM welcome_dm_sent WHERE user_id = ?').get(uid);
+  if (row) return;
+  const web = (process.env.WEB_URL || 'https://nexus-two-swart.vercel.app').replace(/\/$/, '');
+  const invite = process.env.DISCORD_INVITE_URL || 'https://discord.com/oauth2/authorize';
+  const text =
+    '👋 Hola, soy **Nexus**.\n\n' +
+    'Soy un bot especializado en la gestión de gremios de **Albion Online**.\n\n' +
+    '**Funciones principales:**\n' +
+    '⚔️ Registro de kills y batallas\n' +
+    '📊 Estadísticas y seguimiento\n' +
+    '🛡️ Gestión de asistencia\n' +
+    '🏰 Herramientas para líderes de gremio\n' +
+    '🌐 Dashboard web\n\n' +
+    `🔗 [Invítame a tu servidor](${invite})\n` +
+    `🌐 [Visita nuestra página web](${web})`;
+  try {
+    const user = await ix.client.users.fetch(uid);
+    await user.send(text);
+    getDb().prepare('INSERT INTO welcome_dm_sent (user_id, sent_at) VALUES (?, ?)').run(uid, Date.now());
+  } catch {
+    /* DMs cerrados */
+  }
+}
 
 client.on(Events.InteractionCreate, async (ix) => {
   try {
     if (!ix.guildId) return;
+    maybeWelcomeDm(ix).catch(() => {});
+    if (ix.isChatInputCommand()) {
+      const sub = ix.options?.getSubcommand?.(false);
+      const cmdName = sub ? `${ix.commandName}:${sub}` : ix.commandName;
+      logCommand(getDb, ix.guildId, cmdName);
+    }
     const c = ctx();
     const modId = moduleForInteraction(ix);
     if (modId && !isModuleEnabled(getDb, ix.guildId, modId)) {
@@ -234,13 +325,21 @@ client.on(Events.InteractionCreate, async (ix) => {
     }
   } catch (e) {
     log.error(e.stack || e);
+    try {
+      logError(getDb, e, { guildId: ix.guildId, userId: ix.user?.id });
+    } catch {
+      /* ignore */
+    }
     const msg = { content: 'Error.', ephemeral: true };
     if (ix.replied || ix.deferred) await ix.followUp(msg).catch(() => {});
     else await ix.reply(msg).catch(() => {});
   }
 });
 
-client.on(Events.GuildDelete, (g) => purgeGuild(g.id));
+client.on(Events.GuildDelete, (g) => {
+  logSystem(getDb, 'info', `Bot salió de ${g.name || g.id}`, { guildId: g.id });
+  purgeGuild(g.id);
+});
 client.on(Events.Error, (e) => log.error(String(e)));
 process.on('unhandledRejection', (e) => log.error(String(e)));
 

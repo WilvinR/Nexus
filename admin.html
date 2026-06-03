@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Nexus</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+  <nav>
+    <a href="/" class="logo">NEX<span>US</span></a>
+    <span class="nav-badge">👑 OWNER</span>
+  </nav>
+
+  <main class="dash-wrap admin-wrap" id="admin-app">
+    <section id="admin-login" class="dash-panel">
+      <h1 class="dash-title">PANEL DE ADMINISTRACIÓN</h1>
+      <p class="dash-sub">Solo el dueño del bot (BOT_OWNER_ID) puede acceder.</p>
+      <button type="button" class="btn btn-discord btn-lg" id="admin-btn-login">Iniciar sesión con Discord</button>
+    </section>
+
+    <section id="admin-panel" class="hidden">
+      <div class="dash-head">
+        <div>
+          <div class="section-label">// OWNER</div>
+          <h1 class="dash-title">ADMIN NEXUS</h1>
+        </div>
+        <button type="button" class="btn btn-accent" id="admin-logout">Salir</button>
+      </div>
+
+      <nav class="admin-tabs" id="admin-tabs">
+        <button type="button" data-tab="overview" class="active">Dashboard</button>
+        <button type="button" data-tab="stats">Estadísticas</button>
+        <button type="button" data-tab="announce">Anuncios</button>
+        <button type="button" data-tab="guilds">Servidores</button>
+        <button type="button" data-tab="suggestions">Sugerencias</button>
+        <button type="button" data-tab="errors">Errores</button>
+        <button type="button" data-tab="syslogs">Logs sistema</button>
+        <button type="button" data-tab="services">Servicios</button>
+      </nav>
+
+      <div id="tab-overview" class="admin-tab"></div>
+      <div id="tab-stats" class="admin-tab hidden"></div>
+      <div id="tab-announce" class="admin-tab hidden"></div>
+      <div id="tab-guilds" class="admin-tab hidden"></div>
+      <div id="tab-suggestions" class="admin-tab hidden"></div>
+      <div id="tab-errors" class="admin-tab hidden"></div>
+      <div id="tab-syslogs" class="admin-tab hidden"></div>
+      <div id="tab-services" class="admin-tab hidden"></div>
+
+      <div id="guild-detail-backdrop" class="modal-backdrop hidden">
+        <div class="modal modal-wide" role="dialog">
+          <button type="button" class="modal-close" id="guild-detail-close">×</button>
+          <h2 class="modal-title" id="guild-detail-title">Servidor</h2>
+          <div id="guild-detail-body" class="modal-body"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/admin.js"></script>
+</body>
+</html>

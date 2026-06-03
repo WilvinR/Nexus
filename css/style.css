@@ -571,6 +571,297 @@ footer {
   border: 1px dashed var(--border);
 }
 
+/* Módulos — tarjetas */
+.mod-cards { display: flex; flex-direction: column; gap: 0; padding: 8px 16px 16px; }
+
+.mod-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 8px;
+  border-top: 1px solid var(--border);
+  cursor: default;
+}
+
+.mod-card:first-child { border-top: none; }
+.mod-card-click { cursor: pointer; }
+.mod-card-click:hover { background: rgba(0, 212, 255, 0.04); }
+.mod-card-off { opacity: 0.55; }
+
+.mod-card-name { color: #fff; font-size: 1.05rem; font-weight: 600; }
+.mod-card-info small { display: block; color: var(--muted); font-size: 0.8rem; }
+.mod-card-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+.btn-sm { padding: 6px 12px; font-size: 0.85rem; }
+.btn-config { border: 1px solid var(--accent); color: var(--accent); background: transparent; }
+.btn-danger { border-color: #e74c3c; color: #e74c3c; }
+
+/* Modales */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  position: relative;
+  width: 100%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: rgba(8, 13, 26, 0.98);
+  border: 1px solid var(--border);
+  padding: 24px;
+  text-align: left;
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+}
+
+.modal-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.6rem;
+  letter-spacing: 2px;
+  color: #fff;
+  margin: 0 0 16px;
+  padding-right: 28px;
+}
+
+.modal-section { margin-bottom: 20px; }
+.modal-section h3 {
+  font-family: 'Bebas Neue', sans-serif;
+  letter-spacing: 1px;
+  color: var(--accent);
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+}
+
+.modal-meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 10px; }
+
+.capsule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.capsule-name { flex: 1; color: var(--text); font-size: 0.95rem; }
+.icon-btn {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 4px;
+}
+
+.sub-form {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px dashed var(--accent);
+  background: rgba(0, 212, 255, 0.05);
+}
+
+.sub-form h4 { margin: 0 0 12px; color: #fff; font-size: 1rem; }
+
+.form-label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 12px;
+}
+
+.form-input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border);
+  color: #fff;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* Admin */
+.nav-badge {
+  margin-left: auto;
+  color: var(--accent);
+  font-size: 0.85rem;
+  letter-spacing: 1px;
+}
+
+.admin-wrap { max-width: 1100px; }
+
+.admin-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 20px 0;
+}
+
+.admin-tabs button {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-tabs button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+  text-align: left;
+}
+
+.stat-card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: rgba(8, 13, 26, 0.85);
+}
+
+.stat-card span { display: block; color: var(--muted); font-size: 0.8rem; }
+.stat-card strong { color: #fff; font-size: 1.1rem; }
+
+.suggestion-item {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.suggestion-item.unread { border-color: rgba(231, 76, 60, 0.5); }
+.suggestion-item p { margin: 8px 0 0; color: var(--text); }
+
+.error-item {
+  text-align: left;
+  padding: 12px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border);
+}
+
+.error-stack {
+  font-size: 0.75rem;
+  color: var(--muted);
+  overflow-x: auto;
+  max-height: 120px;
+}
+
+.admin-guild-row { justify-content: space-between; }
+
+.admin-link { color: var(--accent); }
+
+.chart-heading {
+  font-family: 'Bebas Neue', sans-serif;
+  letter-spacing: 1px;
+  color: var(--accent);
+  margin: 24px 0 10px;
+  text-align: left;
+}
+
+.admin-chart {
+  width: 100%;
+  max-width: 900px;
+  height: auto;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.25);
+  margin-bottom: 8px;
+}
+
+.modal-wide { max-width: 640px; }
+
+.guild-pick-list {
+  max-height: 200px;
+  overflow-y: auto;
+  margin: 12px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.guild-check {
+  display: block;
+  color: var(--text);
+  margin: 6px 0;
+  cursor: pointer;
+}
+
+.announce-preview {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px dashed var(--accent);
+  text-align: left;
+}
+
+.announce-preview-inner strong { color: #fff; font-size: 1.2rem; }
+.announce-preview img { max-width: 100%; margin-top: 10px; }
+
+.guild-mini-icon { border-radius: 50%; }
+.guild-row-btns { display: flex; gap: 6px; flex-shrink: 0; }
+
+.error-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.syslog-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border-left: 3px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+  text-align: left;
+  font-size: 0.9rem;
+}
+
+.syslog-row.level-error { border-left-color: #e74c3c; }
+.syslog-row.level-warn { border-left-color: #fbbf24; }
+.syslog-row.level-info { border-left-color: var(--accent); }
+
+.syslog-time { color: var(--muted); }
+.syslog-lv { color: var(--accent); font-weight: 600; }
+.syslog-msg { color: var(--text); flex: 1; }
+
+.capsule-meta { color: var(--muted); font-size: 0.85rem; margin: 4px 0; }
+
 @media (max-width: 768px) {
   .hero { padding: 120px 20px 80px; }
   .stats-bar { gap: 40px; padding: 35px 20px; }

@@ -41,10 +41,7 @@ const CATEGORIES = {
     label: 'Mercado (Américas)',
     emoji: '💰',
     commands: [
-      {
-        name: '/precio',
-        desc: 'Precios de venta y compra (todas las ciudades y calidades). Ej: t6.2 Chaqueta real',
-      },
+      { name: '/precio', desc: 'Precio de venta de un ítem en el mercado del servidor Américas (West).' },
     ],
   },
   balance: {
@@ -129,8 +126,20 @@ const commands = [
       .setName('sugerencia')
       .setDescription('Envía una sugerencia al administrador del bot')
       .addStringOption((o) => o.setName('mensaje').setDescription('Tu sugerencia').setRequired(true)),
-    async run(ix, { log }) {
+    async run(ix, { log, getDb }) {
       const msg = ix.options.getString('mensaje');
+      try {
+        const { saveSuggestion } = require('./adminRoutes');
+        saveSuggestion(getDb, {
+          userId: ix.user.id,
+          username: ix.user.tag,
+          guildId: ix.guildId,
+          guildName: ix.guild.name,
+          content: msg,
+        });
+      } catch (e) {
+        log.warn(`Sugerencia DB: ${e.message}`);
+      }
       const ownerId = process.env.BOT_OWNER_ID;
       let target = ownerId ? await ix.client.users.fetch(ownerId).catch(() => null) : null;
       if (!target) {

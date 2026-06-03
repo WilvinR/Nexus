@@ -2,6 +2,8 @@ const NEXUS_API = 'https://nexus-bot.discloud.app';
 const TOKEN_KEY = 'nexus_session';
 
 let guildsData = [];
+let currentGuildId = null;
+let moduleModals = null;
 
 function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
@@ -74,8 +76,15 @@ function openGuild(g) {
   document.getElementById('guild-config').classList.remove('hidden');
   document.querySelector('.dash-head h1').textContent = 'CONFIGURAR';
   document.getElementById('dash-hint').classList.add('hidden');
+  currentGuildId = g.id;
+  channelsCacheReset();
   setGuildHeader(g);
   renderModules(document.getElementById('mod-list'), g.id, g.modules || []);
+}
+
+function channelsCacheReset() {
+  /* reinicia caché de canales/roles al cambiar de servidor */
+  if (typeof window.__dashResetCaches === 'function') window.__dashResetCaches();
 }
 
 function renderGuildGrid() {
@@ -97,15 +106,24 @@ function renderGuildGrid() {
 
 function renderModules(modList, guildId, modules) {
   modList.innerHTML = '';
+  const configurable = moduleModals?.CONFIG_MODULES || new Set();
   for (const m of modules) {
-    const row = document.createElement('div');
-    row.className = 'mod-row';
-    row.innerHTML = `
-      <div><span>${escapeHtml(m.name)}</span><small>${escapeHtml(m.description)}</small></div>
-      <button type="button" class="toggle ${m.enabled ? 'on' : ''}" aria-label="${m.name}"></button>
+    const card = document.createElement('div');
+    card.className = `mod-card ${m.enabled ? '' : 'mod-card-off'}`;
+    const canConfig = configurable.has(m.id) && m.enabled;
+    card.innerHTML = `
+      <div class="mod-card-info">
+        <span class="mod-card-name">${escapeHtml(m.name)}</span>
+        <small>${escapeHtml(m.description)}</small>
+      </div>
+      <div class="mod-card-actions">
+        ${canConfig ? `<button type="button" class="btn btn-sm btn-config" data-mod="${m.id}">Configurar</button>` : ''}
+        <button type="button" class="toggle ${m.enabled ? 'on' : ''}" aria-label="${m.name}"></button>
+      </div>
     `;
-    const btn = row.querySelector('.toggle');
-    btn.addEventListener('click', async () => {
+    card.querySelector('.toggle').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
       const next = !btn.classList.contains('on');
       const r = await api(`/api/guilds/${guildId}/modules/${m.id}`, {
         method: 'PATCH',
@@ -119,12 +137,23 @@ function renderModules(modList, guildId, modules) {
           const mod = g.modules.find((x) => x.id === m.id);
           if (mod) mod.enabled = next;
         }
+        renderModules(modList, guildId, g?.modules || modules);
       } else {
         const err = await r.json().catch(() => ({}));
         alert(err.error || 'No se pudo guardar el cambio.');
       }
     });
-    modList.appendChild(row);
+    if (canConfig) {
+      card.querySelector('.btn-config').addEventListener('click', () => {
+        if (window.openModuleConfig) window.openModuleConfig(m.id);
+      });
+      card.classList.add('mod-card-click');
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.toggle') || e.target.closest('.btn-config')) return;
+        window.openModuleConfig?.(m.id);
+      });
+    }
+    modList.appendChild(card);
   }
 }
 
@@ -137,6 +166,11 @@ async function loadDashboard() {
   }
   const me = await meRes.json();
   document.getElementById('user-label').textContent = `Conectado como ${me.user.username}`;
+  if (me.isOwner) {
+    const hint = document.getElementById('dash-hint');
+    hint.innerHTML +=
+      ' · <a href="admin.html" class="admin-link">Panel owner</a>';
+  }
   showDash();
   showGuildGrid();
 
@@ -174,6 +208,14 @@ function escapeHtml(s) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  moduleModals = initModuleModals({
+    api,
+    escapeHtml,
+    getGuildId: () => currentGuildId,
+  });
+  window.__dashResetCaches = () => {
+    /* dashboard-modules.js resetea al abrir modal */
+  };
   saveTokenFromUrl();
   document.getElementById('btn-login').addEventListener('click', loginRedirect);
   document.getElementById('btn-logout').addEventListener('click', () => {
