@@ -175,11 +175,10 @@ async function loadDashboard() {
   }
   const me = await meRes.json();
   let userLine = `Conectado como ${me.user.username}`;
-  if (me.isOwner) userLine += ' · 👑 Dueño del bot';
-  else if (!me.botOwnerConfigured) {
+  if (me.isOwner) {
+    userLine += ' · 👑 Dueño del bot';
+  } else if (!me.botOwnerConfigured) {
     userLine += ` · <span class="owner-setup">Configura <code>BOT_OWNER_ID=${me.discordUserId}</code> en Discloud</span>`;
-  } else {
-    userLine += ` · ID: <code>${me.discordUserId}</code> (no coincide con BOT_OWNER_ID)`;
   }
   document.getElementById('user-label').innerHTML = userLine;
   showDash();
