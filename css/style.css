@@ -248,25 +248,22 @@ nav.site-nav.has-badge {
   50% { box-shadow: 0 0 80px var(--accent-glow), 0 0 0 8px rgba(228, 184, 74, 0.15); }
 }
 
-.hero-albion-deco {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  max-width: 900px;
-  margin: 0 auto;
+.hero-deco-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(12px, 4vw, 28px);
+  margin-bottom: 20px;
+  animation: fadeUp 1s 0.15s both;
 }
 
 .hero-deco {
-  position: absolute;
-  top: 42%;
-  font-size: clamp(1.8rem, 4vw, 2.8rem);
-  filter: drop-shadow(0 0 16px var(--accent-glow));
-  opacity: 0.85;
-  animation: fadeUp 1s 0.8s both;
+  font-size: clamp(1.5rem, 5vw, 2.5rem);
+  line-height: 1;
+  filter: drop-shadow(0 0 14px var(--accent-glow));
+  flex-shrink: 0;
+  user-select: none;
 }
-
-.hero-deco-l { left: 0; transform: translateY(-50%); }
-.hero-deco-r { right: 0; transform: translateY(-50%); }
 
 .albion-strip {
   display: flex;
@@ -1399,7 +1396,14 @@ footer {
     padding: calc(var(--nav-h) + 20px) var(--page-pad) 48px;
   }
 
-  .hero-deco { display: none; }
+  .hero-deco-row {
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .hero-deco {
+    font-size: clamp(1.35rem, 6vw, 1.75rem);
+  }
 
   .hero-logo {
     width: clamp(88px, 26vw, 130px);

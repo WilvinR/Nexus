@@ -258,6 +258,7 @@ client.once(Events.ClientReady, (c) => {
           ownerId: g.ownerId,
           joinedAt: g.joinedAt?.getTime?.() || Date.now(),
         });
+        welcomeGuildOwner(g).catch(() => {});
       }
     } catch (e) {
       log.error(e);
@@ -288,25 +289,31 @@ async function welcomeGuildOwner(g, ownerUser) {
   if (row) return;
 
   const owner = ownerUser || (await g.fetchOwner().catch(() => null));
-  if (!owner?.user) return;
+  if (!owner?.user) {
+    log.warn(`Welcome DM: no se pudo obtener dueño de ${g.name} (${gid})`);
+    return;
+  }
 
   const web = (process.env.WEB_URL || 'https://nexus-two-swart.vercel.app').replace(/\/$/, '');
   const invite = buildInviteUrl();
   const text =
-    `👋 Gracias por añadir **Nexus** a **${g.name}**.\n\n` +
-    'Soy el bot de gestión para gremios de **Albion Online**: registro, killboard, batallas, mercado y más.\n\n' +
-    '**Primeros pasos:**\n' +
-    '⚔️ Activa módulos en el dashboard web\n' +
-    '📋 Configura registro con `/configurar_registro`\n' +
-    '📚 Lista de comandos con `/ayuda`\n\n' +
-    `🌐 [Abrir dashboard](${web}/dashboard.html)\n` +
-    `🔗 [Invitar Nexus a otro servidor](${invite})`;
+    '👋 Hola, soy **Nexus**.\n\n' +
+    'Soy un bot especializado en la gestión de gremios de **Albion Online**.\n\n' +
+    '**Funciones principales:**\n' +
+    '⚔️ Registro de kills y batallas\n' +
+    '📊 Estadísticas y seguimiento\n' +
+    '🛡️ Gestión de asistencia\n' +
+    '🏰 Herramientas para líderes de gremio\n' +
+    '🌐 Dashboard web\n\n' +
+    `🔗 [Invítame a tu servidor](${invite})\n` +
+    `🌐 [Visita nuestra página web](${web})`;
 
   try {
     await owner.user.send(text);
     getDb().prepare('INSERT INTO welcome_guild_sent (guild_id, sent_at) VALUES (?, ?)').run(gid, Date.now());
-  } catch {
-    /* DMs cerrados */
+    log.info(`Welcome DM enviado al dueño de ${g.name}`);
+  } catch (e) {
+    log.warn(`Welcome DM a ${owner.user.tag} (${g.name}): ${e.message} — ¿DMs cerrados?`);
   }
 }
 
