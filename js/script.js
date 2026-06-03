@@ -1,28 +1,55 @@
 const NEXUS_API = 'https://nexus-bot.discloud.app';
+/** ID público de la aplicación Discord (Developer Portal → General) */
+const DISCORD_CLIENT_ID = '1395532756259311787';
+const BOT_INVITE = `https://discord.com/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&permissions=268568576&scope=bot%20applications.commands`;
 
 function apiUrl(path) {
   return `${NEXUS_API.replace(/\/$/, '')}${path}`;
 }
 
+function setInviteLinks(url) {
+  const invite = url || BOT_INVITE;
+  for (const id of ['btn-invite', 'btn-invite-2']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.href = invite;
+    el.target = '_blank';
+    el.rel = 'noopener noreferrer';
+  }
+}
+
 async function loadPublicStats() {
+  setInviteLinks(BOT_INVITE);
+
   const el = document.getElementById('srv-count');
   const botEl = document.getElementById('bot-status');
   if (!el) return;
 
   try {
     const res = await fetch(apiUrl('/api/public'));
+    if (res.ok) {
+      const data = await res.json();
+      if (data.ok) {
+        animateCount(el, data.guilds ?? 0);
+        if (botEl) botEl.textContent = data.ready ? 'Online' : 'Conectando…';
+        if (data.invite) setInviteLinks(data.invite);
+        return;
+      }
+    }
+  } catch {
+    /* CORS o API antigua en Discloud — probamos /health */
+  }
+
+  try {
+    const res = await fetch(apiUrl('/health'));
     const data = await res.json();
-    if (!data.ok) return;
-
-    animateCount(el, data.guilds ?? 0);
-    if (botEl && data.bot) botEl.textContent = data.ready ? 'Online' : 'Conectando…';
-
-    for (const id of ['btn-invite', 'btn-invite-2']) {
-      const btn = document.getElementById(id);
-      if (btn && data.invite) btn.href = data.invite;
+    if (data.ok) {
+      animateCount(el, data.guilds ?? 0);
+      if (botEl) botEl.textContent = data.ready ? 'Online' : 'Offline';
     }
   } catch {
     el.textContent = '—';
+    if (botEl) botEl.textContent = 'Sin conexión';
   }
 }
 

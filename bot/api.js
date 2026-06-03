@@ -37,10 +37,11 @@ function start(client, log) {
 
   app.use((req, res, next) => {
     const origin = req.headers.origin;
+    const vercelOk = origin && /\.vercel\.app$/i.test(origin);
     if (!corsOrigins.length) {
       if (origin) res.setHeader('Access-Control-Allow-Origin', origin);
       else res.setHeader('Access-Control-Allow-Origin', '*');
-    } else if (origin && corsOrigins.includes(origin)) {
+    } else if (origin && (corsOrigins.includes(origin) || vercelOk)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
     }
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Api-Secret, Authorization');
@@ -75,6 +76,7 @@ function start(client, log) {
       ready: client.isReady?.() ?? false,
       guilds: client.guilds?.cache?.size ?? 0,
       invite: buildInviteUrl(),
+      webUrl: process.env.WEB_URL || null,
       oauthUrl: null,
     });
   });
