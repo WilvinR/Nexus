@@ -32,6 +32,33 @@ function showDash() {
   document.getElementById('view-dash').classList.remove('hidden');
 }
 
+function renderModules(modList, guildId, modules) {
+  modList.innerHTML = '';
+  for (const m of modules) {
+    const row = document.createElement('div');
+    row.className = 'mod-row';
+    row.innerHTML = `
+      <div><span>${escapeHtml(m.name)}</span><small>${escapeHtml(m.description)}</small></div>
+      <button type="button" class="toggle ${m.enabled ? 'on' : ''}" aria-label="${m.name}"></button>
+    `;
+    const btn = row.querySelector('.toggle');
+    btn.addEventListener('click', async () => {
+      const next = !btn.classList.contains('on');
+      const r = await api(`/api/guilds/${guildId}/modules/${m.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      });
+      if (r.ok) btn.classList.toggle('on', next);
+      else {
+        const err = await r.json().catch(() => ({}));
+        alert(err.error || 'No se pudo guardar el cambio.');
+      }
+    });
+    modList.appendChild(row);
+  }
+}
+
 async function loadDashboard() {
   const meRes = await api('/api/me');
   if (!meRes.ok) {
@@ -43,52 +70,34 @@ async function loadDashboard() {
   document.getElementById('user-label').textContent = `Conectado como ${me.user.username}`;
   showDash();
 
-  const gRes = await api('/api/me/guilds');
   const list = document.getElementById('guild-list');
-  if (!gRes.ok) {
-    list.innerHTML = '<p class="dash-empty">No se pudieron cargar tus servidores.</p>';
+  list.innerHTML = '<p class="dash-empty">Cargando servidores…</p>';
+
+  const dashRes = await api('/api/me/dashboard');
+  if (!dashRes.ok) {
+    const err = await dashRes.json().catch(() => ({}));
+    list.innerHTML = `<p class="dash-empty">${escapeHtml(err.error || 'Error al cargar el panel.')}</p>`;
     return;
   }
-  const { guilds } = await gRes.json();
-  if (!guilds.length) {
+
+  const data = await dashRes.json();
+  document.querySelector('.dash-hint').textContent = data.ownersOnly
+    ? 'Solo servidores de los que eres dueño y donde Nexus está instalado.'
+    : 'Servidores que administras y donde Nexus está instalado.';
+
+  if (!data.guilds.length) {
     list.innerHTML =
-      '<p class="dash-empty">No hay servidores con Nexus donde tengas permiso de administrador.<br>Invita el bot desde la página principal.</p>';
+      '<p class="dash-empty">No hay servidores elegibles.<br>Debes ser dueño e invitar a Nexus.</p>';
     return;
   }
 
   list.innerHTML = '';
-  for (const g of guilds) {
+  for (const g of data.guilds) {
     const card = document.createElement('div');
     card.className = 'guild-card';
     card.innerHTML = `<h2>${escapeHtml(g.name)}</h2><div class="mod-list"></div>`;
     list.appendChild(card);
-    const modList = card.querySelector('.mod-list');
-    const mRes = await api(`/api/guilds/${g.id}/modules`);
-    if (!mRes.ok) {
-      modList.innerHTML = '<p class="dash-empty">Sin acceso a este servidor.</p>';
-      continue;
-    }
-    const { modules } = await mRes.json();
-    for (const m of modules) {
-      const row = document.createElement('div');
-      row.className = 'mod-row';
-      row.innerHTML = `
-        <div><span>${escapeHtml(m.name)}</span><small>${escapeHtml(m.description)}</small></div>
-        <button type="button" class="toggle ${m.enabled ? 'on' : ''}" aria-label="${m.name}"></button>
-      `;
-      const btn = row.querySelector('.toggle');
-      btn.addEventListener('click', async () => {
-        const next = !btn.classList.contains('on');
-        const r = await api(`/api/guilds/${g.id}/modules/${m.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ enabled: next }),
-        });
-        if (r.ok) btn.classList.toggle('on', next);
-        else alert('No se pudo guardar. ¿Sigues con permisos en ese servidor?');
-      });
-      modList.appendChild(row);
-    }
+    renderModules(card.querySelector('.mod-list'), g.id, g.modules || []);
   }
 }
 

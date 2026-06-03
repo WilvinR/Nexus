@@ -2,6 +2,11 @@ const crypto = require('crypto');
 const { MODULES, getGuildModuleStates, setModuleEnabled } = require('./modules');
 
 let server = null;
+const userGuildCache = new Map();
+
+function ownersOnly() {
+  return process.env.DASHBOARD_OWNERS_ONLY !== 'false';
+}
 
 function getClientId() {
   if (process.env.CLIENT_ID) return process.env.CLIENT_ID;
@@ -47,13 +52,59 @@ function newSessionToken() {
 }
 
 function canManageGuild(g) {
+  if (ownersOnly()) return !!g.owner;
   if (g.owner) return true;
   try {
-    const perms = BigInt(g.permissions || 0);
+    const perms = BigInt(String(g.permissions ?? 0));
     return (perms & 8n) === 8n || (perms & 32n) === 32n;
   } catch {
     return false;
   }
+}
+
+async function fetchUserGuilds(session, log) {
+  const key = session.token;
+  const hit = userGuildCache.get(key);
+  if (hit && Date.now() - hit.at < 120_000) return hit.guilds;
+
+  const guilds = await discordApi('/users/@me/guilds', session.access_token);
+  if (!guilds) {
+    log.warn('Discord /users/@me/guilds falló');
+    return hit?.guilds ?? null;
+  }
+  userGuildCache.set(key, { guilds, at: Date.now() });
+  return guilds;
+}
+
+function buildManagedGuildList(client, rawGuilds) {
+  return rawGuilds
+    .filter((g) => canManageGuild(g) && client.guilds.cache.has(String(g.id)))
+    .map((g) => {
+      const id = String(g.id);
+      const botGuild = client.guilds.cache.get(id);
+      return {
+        id,
+        name: botGuild?.name || g.name,
+        icon: g.icon,
+        owner: !!g.owner,
+        botPresent: true,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function assertGuildAccess(client, session, guildId, log) {
+  const guilds = await fetchUserGuilds(session, log);
+  if (!guilds) return { ok: false, status: 502, error: 'No se pudo verificar con Discord' };
+  const id = String(guildId);
+  const g = guilds.find((x) => String(x.id) === id);
+  if (!g || !canManageGuild(g)) {
+    return { ok: false, status: 403, error: 'Sin permiso (solo dueños del servidor)' };
+  }
+  if (!client.guilds.cache.has(id)) {
+    return { ok: false, status: 400, error: 'Nexus no está en este servidor' };
+  }
+  return { ok: true, guildId: id };
 }
 
 async function discordTokenExchange(code) {
@@ -221,57 +272,38 @@ function start(client, log, getDb) {
   });
 
   app.get('/api/me/guilds', sessionAuth, async (req, res) => {
-    const guilds = await discordApi('/users/@me/guilds', req.session.access_token);
-    if (!guilds) return res.status(502).json({ error: 'No se pudieron cargar tus servidores' });
+    const raw = await fetchUserGuilds(req.session, log);
+    if (!raw) return res.status(502).json({ error: 'No se pudieron cargar tus servidores' });
+    res.json({ ok: true, guilds: buildManagedGuildList(client, raw) });
+  });
 
-    const list = guilds
-      .filter((g) => canManageGuild(g))
-      .map((g) => {
-        const botIn = client.guilds.cache.has(g.id);
-        const botGuild = botIn ? client.guilds.cache.get(g.id) : null;
-        return {
-          id: g.id,
-          name: g.name,
-          icon: g.icon,
-          owner: !!g.owner,
-          botPresent: botIn,
-          botGuildName: botGuild?.name || null,
-        };
-      })
-      .filter((g) => g.botPresent)
-      .sort((a, b) => a.name.localeCompare(b.name));
+  app.get('/api/me/dashboard', sessionAuth, async (req, res) => {
+    const raw = await fetchUserGuilds(req.session, log);
+    if (!raw) return res.status(502).json({ error: 'No se pudieron cargar tus servidores' });
 
-    res.json({ ok: true, guilds: list });
+    const guilds = buildManagedGuildList(client, raw).map((g) => ({
+      ...g,
+      modules: getGuildModuleStates(getDb, g.id),
+    }));
+
+    res.json({ ok: true, guilds, ownersOnly: ownersOnly() });
   });
 
   app.get('/api/guilds/:guildId/modules', sessionAuth, async (req, res) => {
-    const { guildId } = req.params;
-    const guilds = await discordApi('/users/@me/guilds', req.session.access_token);
-    const g = guilds?.find((x) => x.id === guildId);
-    if (!g || !canManageGuild(g)) {
-      return res.status(403).json({ error: 'No tienes permiso para administrar este servidor' });
-    }
-    if (!client.guilds.cache.has(guildId)) {
-      return res.status(400).json({ error: 'Nexus no está en ese servidor. Invita el bot primero.' });
-    }
-    res.json({ ok: true, modules: getGuildModuleStates(getDb, guildId) });
+    const access = await assertGuildAccess(client, req.session, req.params.guildId, log);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
+    res.json({ ok: true, modules: getGuildModuleStates(getDb, access.guildId) });
   });
 
   app.patch('/api/guilds/:guildId/modules/:moduleId', sessionAuth, async (req, res) => {
-    const { guildId, moduleId } = req.params;
+    const { moduleId } = req.params;
     if (!MODULES.some((m) => m.id === moduleId)) {
       return res.status(400).json({ error: 'Módulo desconocido' });
     }
-    const guilds = await discordApi('/users/@me/guilds', req.session.access_token);
-    const g = guilds?.find((x) => x.id === guildId);
-    if (!g || !canManageGuild(g)) {
-      return res.status(403).json({ error: 'No tienes permiso para administrar este servidor' });
-    }
-    if (!client.guilds.cache.has(guildId)) {
-      return res.status(400).json({ error: 'Nexus no está en ese servidor' });
-    }
+    const access = await assertGuildAccess(client, req.session, req.params.guildId, log);
+    if (!access.ok) return res.status(access.status).json({ error: access.error });
     const enabled = !!req.body?.enabled;
-    setModuleEnabled(getDb, guildId, moduleId, enabled);
+    setModuleEnabled(getDb, access.guildId, moduleId, enabled);
     res.json({ ok: true, moduleId, enabled });
   });
 
