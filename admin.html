@@ -10,7 +10,7 @@
 <body>
   <div class="orb orb1"></div>
   <div class="orb orb2"></div>
-  <nav>
+  <nav class="site-nav has-badge">
     <a href="/" class="logo">NEX<span>US</span></a>
     <span class="nav-badge">👑 OWNER</span>
   </nav>
@@ -22,7 +22,7 @@
       <button type="button" class="btn btn-discord btn-lg" id="admin-btn-login">Iniciar sesión con Discord</button>
     </section>
 
-    <section id="admin-panel" class="hidden">
+    <section id="admin-panel" class="hidden admin-panel">
       <div class="dash-head">
         <div>
           <div class="section-label">// OWNER</div>
@@ -31,7 +31,7 @@
         <button type="button" class="btn btn-accent" id="admin-logout">Salir</button>
       </div>
 
-      <nav class="admin-tabs" id="admin-tabs">
+      <div class="admin-tabs" id="admin-tabs" role="tablist" aria-label="Secciones del panel">
         <button type="button" data-tab="overview" class="active">Dashboard</button>
         <button type="button" data-tab="stats">Estadísticas</button>
         <button type="button" data-tab="announce">Anuncios</button>
@@ -40,7 +40,7 @@
         <button type="button" data-tab="errors">Errores</button>
         <button type="button" data-tab="syslogs">Logs sistema</button>
         <button type="button" data-tab="services">Servicios</button>
-      </nav>
+      </div>
 
       <div id="tab-overview" class="admin-tab"></div>
       <div id="tab-stats" class="admin-tab hidden"></div>
