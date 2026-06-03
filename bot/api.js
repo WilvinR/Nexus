@@ -1,8 +1,9 @@
 const crypto = require('crypto');
 const { MODULES, getGuildModuleStates, setModuleEnabled } = require('./modules');
 const { registerGuildConfigRoutes } = require('./guildConfigRoutes');
-const { registerAdminRoutes, logSystem, isBotOwner, getBotOwnerIds } = require('./adminRoutes');
+const { registerAdminRoutes, logSystem } = require('./adminRoutes');
 const { buildInviteUrl, getClientId } = require('./invite');
+const { isBotOwner, getBotOwnerIds } = require('./owner');
 
 let server = null;
 const userGuildCache = new Map();
