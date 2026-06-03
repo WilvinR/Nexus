@@ -1,6 +1,6 @@
 const NEXUS_API = 'https://nexus-bot.discloud.app';
 /** ID público de la aplicación Discord (Developer Portal → General) */
-const DISCORD_CLIENT_ID = '1395532756259311787';
+const DISCORD_CLIENT_ID = '1348090006547337318';
 const BOT_INVITE = `https://discord.com/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&permissions=268568576&scope=bot%20applications.commands`;
 
 function apiUrl(path) {
