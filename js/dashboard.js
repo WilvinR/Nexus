@@ -5,6 +5,19 @@ let guildsData = [];
 let currentGuildId = null;
 let moduleModals = null;
 
+const MODULE_EMOJI = {
+  registro: '📋',
+  kill: '⚔️',
+  battle: '📊',
+  mercado: '💰',
+  logs: '📜',
+  moderacion: '🛡️',
+  eventos: '📅',
+  musica: '🎵',
+  bal: '⚖️',
+  utilidad: '💬',
+};
+
 function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const token = sessionStorage.getItem(TOKEN_KEY);
@@ -108,21 +121,22 @@ function renderModules(modList, guildId, modules) {
   modList.innerHTML = '';
   const configurable = moduleModals?.CONFIG_MODULES || new Set(['registro', 'kill', 'battle', 'logs']);
   for (const m of modules) {
-    const row = document.createElement('div');
-    row.className = 'mod-row';
     const showConfig = configurable.has(m.id);
-    row.innerHTML = `
-      <div class="mod-row-main">
-        <span>${escapeHtml(m.name)}</span>
-        <small>${escapeHtml(m.description)}</small>
+    const emoji = MODULE_EMOJI[m.id] || '⚙️';
+    const card = document.createElement('div');
+    card.className = `dash-mod-card${m.enabled ? '' : ' dash-mod-off'}`;
+    card.innerHTML = `
+      <div class="dash-mod-top">
+        <span class="dash-mod-emoji" aria-hidden="true">${emoji}</span>
+        <button type="button" class="toggle ${m.enabled ? 'on' : ''}" aria-label="${escapeHtml(m.name)}"></button>
       </div>
-      <div class="mod-row-actions">
-        ${showConfig ? `<button type="button" class="btn btn-sm btn-config">Configurar</button>` : ''}
-        <button type="button" class="toggle ${m.enabled ? 'on' : ''}" aria-label="${m.name}"></button>
-      </div>
+      <div class="dash-mod-name">${escapeHtml(m.name)}</div>
+      ${showConfig ? '<button type="button" class="dash-mod-config">Configurar</button>' : ''}
+      <p class="dash-mod-desc">${escapeHtml(m.description)}</p>
     `;
-    row.querySelector('.toggle').addEventListener('click', async () => {
-      const btn = row.querySelector('.toggle');
+    card.querySelector('.toggle').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
       const next = !btn.classList.contains('on');
       const r = await api(`/api/guilds/${guildId}/modules/${m.id}`, {
         method: 'PATCH',
@@ -141,12 +155,14 @@ function renderModules(modList, guildId, modules) {
         alert(err.error || 'No se pudo guardar el cambio.');
       }
     });
-    if (showConfig) {
-      row.querySelector('.btn-config').addEventListener('click', () => {
+    const cfgBtn = card.querySelector('.dash-mod-config');
+    if (cfgBtn) {
+      cfgBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
         window.openModuleConfig?.(m.id);
       });
     }
-    modList.appendChild(row);
+    modList.appendChild(card);
   }
 }
 
