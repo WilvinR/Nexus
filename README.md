@@ -1,15 +1,26 @@
 # Nexus
 
+Sitio web (3 archivos en la raíz):
+
 ```
-index.html      ← landing (Vercel)
+index.html
 css/style.css
 js/script.js
-bot/            ← Discord bot (Discloud)
 ```
 
-## Vercel
+Bot en `bot/` (solo para Discloud).
 
-Root Directory: **vacío**. Framework: **Other**. Redeploy.
+## Vercel — IMPORTANTE
+
+En **Project Settings → General**:
+
+| Campo | Valor |
+|-------|--------|
+| Root Directory | **vacío** (borra `web` o `public` si aparece) |
+| Output Directory | **vacío** |
+| Framework Preset | **Other** |
+
+Luego **Deployments → Redeploy** el último commit.
 
 ## Discloud
 
