@@ -1,6 +1,8 @@
 const NEXUS_API = 'https://nexus-bot.discloud.app';
 const TOKEN_KEY = 'nexus_session';
 
+let guildsData = [];
+
 function api(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   const token = sessionStorage.getItem(TOKEN_KEY);
@@ -32,6 +34,66 @@ function showDash() {
   document.getElementById('view-dash').classList.remove('hidden');
 }
 
+function guildIconUrl(g) {
+  if (!g.icon) return null;
+  return `https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=128`;
+}
+
+function guildInitial(name) {
+  const t = (name || '?').trim();
+  return (t[0] || '?').toUpperCase();
+}
+
+function setGuildHeader(g) {
+  const url = guildIconUrl(g);
+  const img = document.getElementById('guild-config-icon');
+  const ph = document.getElementById('guild-config-placeholder');
+  document.getElementById('guild-config-name').textContent = g.name;
+  if (url) {
+    img.src = url;
+    img.alt = g.name;
+    img.hidden = false;
+    ph.hidden = true;
+  } else {
+    img.hidden = true;
+    ph.hidden = false;
+    ph.textContent = guildInitial(g.name);
+  }
+}
+
+function showGuildGrid() {
+  document.getElementById('guild-grid').classList.remove('hidden');
+  document.getElementById('guild-config').classList.add('hidden');
+  document.querySelector('.dash-head h1').textContent = 'TUS SERVIDORES';
+  document.getElementById('dash-hint').classList.remove('hidden');
+}
+
+function openGuild(g) {
+  document.getElementById('guild-grid').classList.add('hidden');
+  document.getElementById('guild-config').classList.remove('hidden');
+  document.querySelector('.dash-head h1').textContent = 'CONFIGURAR';
+  document.getElementById('dash-hint').classList.add('hidden');
+  setGuildHeader(g);
+  renderModules(document.getElementById('mod-list'), g.id, g.modules || []);
+}
+
+function renderGuildGrid() {
+  const grid = document.getElementById('guild-grid');
+  grid.innerHTML = '';
+  for (const g of guildsData) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'guild-pick';
+    const url = guildIconUrl(g);
+    const iconHtml = url
+      ? `<img src="${url}" alt="" width="72" height="72" loading="lazy">`
+      : `<span class="guild-pick-ph" aria-hidden="true">${escapeHtml(guildInitial(g.name))}</span>`;
+    btn.innerHTML = `${iconHtml}<span class="guild-pick-name">${escapeHtml(g.name)}</span>`;
+    btn.addEventListener('click', () => openGuild(g));
+    grid.appendChild(btn);
+  }
+}
+
 function renderModules(modList, guildId, modules) {
   modList.innerHTML = '';
   for (const m of modules) {
@@ -49,8 +111,14 @@ function renderModules(modList, guildId, modules) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: next }),
       });
-      if (r.ok) btn.classList.toggle('on', next);
-      else {
+      if (r.ok) {
+        btn.classList.toggle('on', next);
+        const g = guildsData.find((x) => x.id === guildId);
+        if (g?.modules) {
+          const mod = g.modules.find((x) => x.id === m.id);
+          if (mod) mod.enabled = next;
+        }
+      } else {
         const err = await r.json().catch(() => ({}));
         alert(err.error || 'No se pudo guardar el cambio.');
       }
@@ -69,36 +137,33 @@ async function loadDashboard() {
   const me = await meRes.json();
   document.getElementById('user-label').textContent = `Conectado como ${me.user.username}`;
   showDash();
+  showGuildGrid();
 
-  const list = document.getElementById('guild-list');
-  list.innerHTML = '<p class="dash-empty">Cargando servidores…</p>';
+  const grid = document.getElementById('guild-grid');
+  grid.innerHTML = '<p class="dash-empty">Cargando servidores…</p>';
+  document.getElementById('guild-config').classList.add('hidden');
 
   const dashRes = await api('/api/me/dashboard');
   if (!dashRes.ok) {
     const err = await dashRes.json().catch(() => ({}));
-    list.innerHTML = `<p class="dash-empty">${escapeHtml(err.error || 'Error al cargar el panel.')}</p>`;
+    grid.innerHTML = `<p class="dash-empty">${escapeHtml(err.error || 'Error al cargar el panel.')}</p>`;
     return;
   }
 
   const data = await dashRes.json();
-  document.querySelector('.dash-hint').textContent = data.ownersOnly
-    ? 'Solo servidores de los que eres dueño y donde Nexus está instalado.'
-    : 'Servidores que administras y donde Nexus está instalado.';
+  document.getElementById('dash-hint').textContent = data.ownersOnly
+    ? 'Toca un servidor para configurar módulos (solo dueños con Nexus instalado).'
+    : 'Toca un servidor para configurar módulos.';
 
   if (!data.guilds.length) {
-    list.innerHTML =
+    guildsData = [];
+    grid.innerHTML =
       '<p class="dash-empty">No hay servidores elegibles.<br>Debes ser dueño e invitar a Nexus.</p>';
     return;
   }
 
-  list.innerHTML = '';
-  for (const g of data.guilds) {
-    const card = document.createElement('div');
-    card.className = 'guild-card';
-    card.innerHTML = `<h2>${escapeHtml(g.name)}</h2><div class="mod-list"></div>`;
-    list.appendChild(card);
-    renderModules(card.querySelector('.mod-list'), g.id, g.modules || []);
-  }
+  guildsData = data.guilds;
+  renderGuildGrid();
 }
 
 function escapeHtml(s) {
@@ -114,6 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
     sessionStorage.removeItem(TOKEN_KEY);
     showLogin();
   });
+  document.getElementById('btn-back').addEventListener('click', showGuildGrid);
 
   if (sessionStorage.getItem(TOKEN_KEY)) loadDashboard();
   else showLogin();

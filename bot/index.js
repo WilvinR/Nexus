@@ -7,8 +7,6 @@ const {
   Partials,
   Events,
   ActivityType,
-  REST,
-  Routes,
 } = require('discord.js');
 
 const logs = require('./logs');
@@ -22,7 +20,9 @@ const bal = require('./bal');
 const utilidad = require('./utilidad');
 const mercado = require('./mercado');
 const { moduleForInteraction, isModuleEnabled } = require('./modules');
+const commandSync = require('./commandSync');
 const modulos = [require('./registro'), kill, moderacion, eventos, musica, battle, bal, utilidad, mercado];
+commandSync.init(modulos, logs);
 
 // ——— .env ———
 const envPath = path.join(__dirname, '.env');
@@ -177,19 +177,6 @@ function purgeGuild(guildId) {
   if (logs.onGuildRemove) logs.onGuildRemove(guildId, ctx());
 }
 
-async function registerCommands() {
-  const all = [...modulos, logs];
-  const body = all.flatMap((m) => (m.commands || []).map((c) => c.data.toJSON()));
-  const clientId = getClientId();
-  if (!clientId) return log.warn('Sin CLIENT_ID (ni token válido para derivarlo)');
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-  const route = process.env.GUILD_ID
-    ? Routes.applicationGuildCommands(clientId, process.env.GUILD_ID)
-    : Routes.applicationCommands(clientId);
-  await rest.put(route, { body });
-  log.info('Comandos OK');
-}
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -212,12 +199,18 @@ client.once(Events.ClientReady, (c) => {
       const c = ctx();
       if (logs.onInit) logs.onInit(client, c);
       for (const m of modulos) if (m.onInit) m.onInit(client, c);
-      api.start(client, log, getDb);
+      api.start(client, log, getDb, {
+        onModuleToggle: (guildId) => commandSync.syncGuildCommands(client, getDb, log, guildId),
+      });
     } catch (e) {
       log.error(e);
     }
-    registerCommands().catch((e) => log.error('Comandos:', e));
+    commandSync.syncAllGuilds(client, getDb, log).catch((e) => log.error('Comandos:', e));
   });
+});
+
+client.on(Events.GuildCreate, (g) => {
+  commandSync.syncGuildCommands(client, getDb, log, g.id).catch((e) => log.warn(`Comandos ${g.id}: ${e.message}`));
 });
 
 client.on(Events.InteractionCreate, async (ix) => {

@@ -365,7 +365,7 @@ footer {
 .dash-wrap {
   position: relative;
   z-index: 1;
-  max-width: 900px;
+  max-width: 960px;
   margin: 0 auto;
   padding: 120px 20px 80px;
 }
@@ -397,21 +397,125 @@ footer {
 
 .dash-hint { font-size: 0.95rem; text-align: left; }
 
-.guild-list { display: flex; flex-direction: column; gap: 20px; margin-top: 28px; }
-
-.guild-card {
-  text-align: left;
-  border: 1px solid var(--border);
-  background: rgba(8, 13, 26, 0.85);
-  padding: 22px;
+.guild-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 16px;
+  margin-top: 28px;
+  text-align: center;
 }
 
-.guild-card h2 {
+.guild-pick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 14px;
+  border: 1px solid var(--border);
+  background: rgba(8, 13, 26, 0.85);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+}
+
+.guild-pick:hover,
+.guild-pick:focus-visible {
+  border-color: var(--accent);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(0, 212, 255, 0.12);
+  outline: none;
+}
+
+.guild-pick img,
+.guild-pick-ph,
+.guild-config-icon,
+.guild-config-placeholder {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.guild-pick img,
+.guild-config-icon {
+  object-fit: cover;
+}
+
+.guild-pick-ph,
+.guild-config-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-family: 'Bebas Neue', sans-serif;
-  font-size: 1.6rem;
+  font-size: 1.8rem;
+  letter-spacing: 1px;
+  color: #fff;
+  background: linear-gradient(135deg, rgba(0, 212, 255, 0.25), rgba(8, 13, 26, 0.9));
+  border: 1px solid var(--border);
+}
+
+.guild-pick-name {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.05rem;
+  letter-spacing: 1px;
+  color: #fff;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guild-config {
+  margin-top: 20px;
+  text-align: left;
+}
+
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 20px;
+  padding: 8px 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+}
+
+.btn-back:hover { text-decoration: underline; }
+
+.guild-config-head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.guild-config-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 1.8rem;
   letter-spacing: 2px;
   color: #fff;
-  margin-bottom: 16px;
+  margin: 0 0 4px;
+}
+
+.guild-config-sub {
+  color: var(--muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.mod-list {
+  border: 1px solid var(--border);
+  background: rgba(8, 13, 26, 0.85);
+  padding: 4px 22px 12px;
 }
 
 .mod-row {

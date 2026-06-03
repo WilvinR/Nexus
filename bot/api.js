@@ -132,7 +132,7 @@ async function discordApi(path, accessToken) {
   return r.json();
 }
 
-function start(client, log, getDb) {
+function start(client, log, getDb, hooks = {}) {
   if (process.env.API_ENABLED === 'false') {
     log.warn('API desactivada (API_ENABLED=false).');
     return;
@@ -304,6 +304,9 @@ function start(client, log, getDb) {
     if (!access.ok) return res.status(access.status).json({ error: access.error });
     const enabled = !!req.body?.enabled;
     setModuleEnabled(getDb, access.guildId, moduleId, enabled);
+    if (hooks.onModuleToggle) {
+      hooks.onModuleToggle(access.guildId).catch((e) => log.warn(`Comandos ${access.guildId}: ${e.message}`));
+    }
     res.json({ ok: true, moduleId, enabled });
   });
 

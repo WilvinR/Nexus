@@ -32,8 +32,22 @@
         </div>
         <button type="button" class="btn btn-accent" id="btn-logout">Cerrar sesión</button>
       </div>
-      <p class="dash-hint">Activa o desactiva módulos por servidor (solo dueños).</p>
-      <div id="guild-list" class="guild-list"></div>
+      <p class="dash-hint" id="dash-hint">Activa o desactiva módulos por servidor.</p>
+
+      <div id="guild-grid" class="guild-grid"></div>
+
+      <section id="guild-config" class="guild-config hidden">
+        <button type="button" class="btn-back" id="btn-back" aria-label="Volver a servidores">← Servidores</button>
+        <header class="guild-config-head">
+          <img id="guild-config-icon" class="guild-config-icon" alt="" width="80" height="80" hidden>
+          <div id="guild-config-placeholder" class="guild-config-placeholder" hidden></div>
+          <div>
+            <h2 class="guild-config-title" id="guild-config-name"></h2>
+            <p class="guild-config-sub">Módulos de este servidor</p>
+          </div>
+        </header>
+        <div id="mod-list" class="mod-list"></div>
+      </section>
     </section>
   </main>
 
