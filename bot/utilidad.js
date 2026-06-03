@@ -129,21 +129,17 @@ const commands = [
       .setDescription('Hora UTC y reloj en canal')
       .addSubcommand((s) => s.setName('hora').setDescription('Muestra la hora UTC ahora'))
       .addSubcommand((s) =>
-        s
-          .setName('canal')
-          .setDescription('Publica y fija un reloj UTC en vivo en este canal')
-          .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+        s.setName('canal').setDescription('Publica y fija un reloj UTC en vivo en este canal'),
       )
-      .addSubcommand((s) =>
-        s
-          .setName('quitar')
-          .setDescription('Quita el reloj UTC del servidor')
-          .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
-      ),
+      .addSubcommand((s) => s.setName('quitar').setDescription('Quita el reloj UTC del servidor')),
     async run(ix, ctx) {
       const sub = ix.options.getSubcommand();
       if (sub === 'hora') {
         await ix.reply(`# 🕐 ${utcTimeString()} UTC`);
+        return;
+      }
+      if (!ix.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        await ix.reply({ content: '❌ Necesitas permiso de administrar el servidor.', ephemeral: true });
         return;
       }
       if (sub === 'canal') {
