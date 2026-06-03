@@ -1,21 +1,16 @@
-const { EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { ChannelType, PermissionFlagsBits } = require('discord.js');
 
-const UTC_TICK_MS = 30_000;
+/** Discord permite ~2 cambios de nombre por canal cada 10 minutos. */
+const UTC_RENAME_MS = 10 * 60 * 1000;
 
 function utcTimeString() {
   return new Date().toISOString().slice(11, 19);
 }
 
-function utcDateString() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function buildUtcClockEmbed() {
-  return new EmbedBuilder()
-    .setTitle('🕐 Reloj UTC')
-    .setDescription(`# ${utcTimeString()}\nReferencia horaria para **Albion Online** y eventos del gremio.`)
-    .setColor(0x00e5ff)
-    .setFooter({ text: `Nexus · ${utcDateString()} UTC · Actualización automática` });
+function formatUtcVoiceChannelName(withSeconds = false) {
+  const iso = new Date().toISOString();
+  const time = withSeconds ? iso.slice(11, 19) : iso.slice(11, 16);
+  return `🕐 ${time} UTC`;
 }
 
 function getUtcClock(getDb, guildId) {
@@ -24,27 +19,24 @@ function getUtcClock(getDb, guildId) {
     .get(String(guildId));
 }
 
-function saveUtcClock(getDb, guildId, channelId, messageId) {
+function saveUtcClock(getDb, guildId, channelId) {
   getDb()
     .prepare(`
-      INSERT INTO utc_clock (guild_id, channel_id, message_id) VALUES (?, ?, ?)
-      ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id, message_id = excluded.message_id
+      INSERT INTO utc_clock (guild_id, channel_id, message_id) VALUES (?, ?, 'voice')
+      ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id, message_id = 'voice'
     `)
-    .run(String(guildId), String(channelId), String(messageId));
+    .run(String(guildId), String(channelId));
 }
 
 function clearUtcClock(getDb, guildId) {
   getDb().prepare('DELETE FROM utc_clock WHERE guild_id = ?').run(String(guildId));
 }
 
-async function deleteUtcMessage(client, row) {
-  if (!row) return;
+async function deleteUtcChannel(client, row) {
+  if (!row?.channel_id) return;
   try {
     const ch = await client.channels.fetch(row.channel_id).catch(() => null);
-    if (ch?.isTextBased()) {
-      const msg = await ch.messages.fetch(row.message_id).catch(() => null);
-      if (msg) await msg.delete().catch(() => {});
-    }
+    if (ch) await ch.delete().catch(() => {});
   } catch {
     /* ignore */
   }
@@ -55,29 +47,22 @@ async function refreshUtcClock(client, getDb, guildId, log) {
   if (!row) return;
 
   const ch = await client.channels.fetch(row.channel_id).catch(() => null);
-  if (!ch?.isTextBased()) {
+  if (!ch || ch.type !== ChannelType.GuildVoice) {
     clearUtcClock(getDb, guildId);
     return;
   }
 
-  const embed = buildUtcClockEmbed();
+  const newName = formatUtcVoiceChannelName(false);
+  if (ch.name === newName) return;
+
   try {
-    const msg = await ch.messages.fetch(row.message_id).catch(() => null);
-    if (msg) {
-      await msg.edit({ embeds: [embed] });
-      return;
-    }
-    const sent = await ch.send({ embeds: [embed] });
-    saveUtcClock(getDb, guildId, ch.id, sent.id);
-    await sent.pin().catch(() => {});
+    await ch.setName(newName);
   } catch (e) {
-    log.warn(`UTC clock ${guildId}: ${e.message}`);
-    try {
-      const sent = await ch.send({ embeds: [embed] });
-      saveUtcClock(getDb, guildId, ch.id, sent.id);
-      await sent.pin().catch(() => {});
-    } catch (e2) {
-      log.warn(`UTC clock recreate ${guildId}: ${e2.message}`);
+    const msg = e.message || String(e);
+    if (e.status === 429 || e.code === 50035 || /rate/i.test(msg)) {
+      log.warn(`UTC rename (rate limit) ${guildId}: ${msg}`);
+    } else {
+      log.warn(`UTC rename ${guildId}: ${msg}`);
     }
   }
 }
@@ -89,54 +74,63 @@ async function tickAllUtcClocks(client, getDb, log) {
   }
 }
 
-async function setupUtcInGuild(client, getDb, guildId, channelId, log) {
+async function setupUtcInGuild(client, getDb, guildId, log, { categoryId } = {}) {
   const gid = String(guildId);
-  const ch = await client.channels.fetch(String(channelId)).catch(() => null);
-  if (!ch?.isTextBased()) throw new Error('Canal no válido');
+  const guild = await client.guilds.fetch(gid).catch(() => null);
+  if (!guild) throw new Error('Servidor no encontrado');
 
-  const guild = ch.guild;
-  const me = guild?.members?.me;
-  if (!me?.permissionsIn(ch).has(PermissionFlagsBits.SendMessages)) {
-    throw new Error('El bot no puede enviar mensajes en ese canal');
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    throw new Error('El bot necesita permiso de Gestionar canales');
   }
 
   const prev = getUtcClock(getDb, gid);
-  if (prev && prev.channel_id !== ch.id) {
-    await deleteUtcMessage(client, prev);
-  } else if (prev?.message_id) {
-    await deleteUtcMessage(client, prev);
-  }
+  if (prev) await deleteUtcChannel(client, prev);
 
-  const embed = buildUtcClockEmbed();
-  const sent = await ch.send({ embeds: [embed] });
-  saveUtcClock(getDb, gid, ch.id, sent.id);
+  const parent =
+    categoryId && guild.channels.cache.get(String(categoryId))?.type === ChannelType.GuildCategory
+      ? String(categoryId)
+      : null;
 
-  if (me.permissionsIn(ch).has(PermissionFlagsBits.ManageMessages)) {
-    await sent.pin().catch(() => {});
-  }
+  const channel = await guild.channels.create({
+    name: formatUtcVoiceChannelName(true),
+    type: ChannelType.GuildVoice,
+    parent,
+    reason: 'Nexus — reloj UTC Albion',
+    permissionOverwrites: [
+      {
+        id: guild.id,
+        deny: [PermissionFlagsBits.Connect],
+        allow: [PermissionFlagsBits.ViewChannel],
+      },
+    ],
+  });
 
-  log.info(`UTC clock activado en ${guild.name} (#${ch.name})`);
-  return { channelId: ch.id, messageId: sent.id };
+  saveUtcClock(getDb, gid, channel.id);
+  log.info(`UTC voice clock creado en ${guild.name} (${channel.name})`);
+  return { channelId: channel.id };
 }
 
 async function removeUtcFromGuild(client, getDb, guildId, log) {
   const row = getUtcClock(getDb, guildId);
   if (!row) return false;
-  await deleteUtcMessage(client, row);
+  await deleteUtcChannel(client, row);
   clearUtcClock(getDb, guildId);
-  log.info(`UTC clock quitado en guild ${guildId}`);
+  log.info(`UTC voice clock quitado en guild ${guildId}`);
   return true;
 }
 
 async function setupUtcChannel(ix, { getDb, log }) {
-  const channel = ix.channel;
-  if (!channel?.isTextBased()) {
-    return ix.reply({ content: '❌ Usa este comando en un canal de texto.', ephemeral: true });
-  }
   try {
-    await setupUtcInGuild(ix.client, getDb, ix.guildId, channel.id, log);
+    const parentId = ix.channel?.parentId || null;
+    const { channelId } = await setupUtcInGuild(ix.client, getDb, ix.guildId, log, {
+      categoryId: parentId,
+    });
+    const ch = await ix.client.channels.fetch(channelId);
     await ix.reply({
-      content: `✅ Reloj UTC activo en ${channel}. Se actualiza cada ${UTC_TICK_MS / 1000} segundos.`,
+      content:
+        `✅ Canal de voz **${ch.name}** creado.\n` +
+        `El nombre se actualiza cada ${UTC_RENAME_MS / 60000} min (límite de Discord).`,
       ephemeral: true,
     });
   } catch (e) {
@@ -145,15 +139,15 @@ async function setupUtcChannel(ix, { getDb, log }) {
 }
 
 module.exports = {
-  UTC_TICK_MS,
+  UTC_TICK_MS: UTC_RENAME_MS,
+  UTC_RENAME_MS,
   utcTimeString,
-  buildUtcClockEmbed,
+  formatUtcVoiceChannelName,
   getUtcClock,
   setupUtcInGuild,
   removeUtcFromGuild,
   setupUtcChannel,
   refreshUtcClock,
   tickAllUtcClocks,
-  deleteUtcMessage,
   clearUtcClock,
 };

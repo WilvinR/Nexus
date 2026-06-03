@@ -100,8 +100,8 @@ const CATEGORIES = {
     emoji: '🔧',
     commands: [
       { name: '/utc hora', desc: 'Muestra la hora UTC actual.' },
-      { name: '/utc canal', desc: 'Publica y fija un reloj UTC en vivo en este canal (Mod).' },
-      { name: '/utc quitar', desc: 'Quita el reloj UTC del servidor (Mod).' },
+      { name: '/utc canal', desc: 'Crea un canal de voz con la hora UTC en el nombre (Mod).' },
+      { name: '/utc quitar', desc: 'Elimina el canal reloj UTC del servidor (Mod).' },
       { name: '/sugerencia', desc: 'Envía una sugerencia al administrador del bot.' },
       { name: '/ayuda', desc: 'Menú de comandos de Nexus.' },
       { name: '/logs', desc: 'Configura el canal de logs del servidor.' },
@@ -126,12 +126,12 @@ const commands = [
   {
     data: new SlashCommandBuilder()
       .setName('utc')
-      .setDescription('Hora UTC y reloj en canal')
+      .setDescription('Hora UTC y reloj en canal de voz')
       .addSubcommand((s) => s.setName('hora').setDescription('Muestra la hora UTC ahora'))
       .addSubcommand((s) =>
-        s.setName('canal').setDescription('Publica y fija un reloj UTC en vivo en este canal'),
+        s.setName('canal').setDescription('Crea un canal de voz con la hora UTC en el nombre'),
       )
-      .addSubcommand((s) => s.setName('quitar').setDescription('Quita el reloj UTC del servidor')),
+      .addSubcommand((s) => s.setName('quitar').setDescription('Elimina el canal reloj UTC')),
     async run(ix, ctx) {
       const sub = ix.options.getSubcommand();
       if (sub === 'hora') {
@@ -225,7 +225,7 @@ module.exports = {
     setInterval(() => {
       tickAllUtcClocks(client, getDb, log).catch((e) => log.warn(`UTC tick: ${e.message}`));
     }, UTC_TICK_MS);
-    log.info(`Reloj UTC: actualización cada ${UTC_TICK_MS / 1000} s`);
+    log.info(`Reloj UTC (voz): actualización cada ${UTC_TICK_MS / 60000} min`);
   },
 
   async handleInteraction(ix, ctx) {

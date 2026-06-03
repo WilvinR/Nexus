@@ -2,8 +2,9 @@
 const CONFIG_MODULES = new Set(['registro', 'kill', 'battle', 'logs', 'utilidad']);
 
 let modalGuildId = null;
-let channelsCache = [];
-let rolesCache = [];
+  let channelsCache = [];
+  let rolesCache = [];
+  let categoriesCache = [];
 
 function initModuleModals(deps) {
   const { api, escapeHtml, getGuildId } = deps;
@@ -52,6 +53,25 @@ function initModuleModals(deps) {
     return rolesCache;
   }
 
+  async function ensureCategories() {
+    const gid = getGuildId();
+    if (!gid) return [];
+    if (categoriesCache.length) return categoriesCache;
+    const r = await api(`/api/guilds/${gid}/categories`);
+    if (r.ok) {
+      const d = await r.json();
+      categoriesCache = d.categories || [];
+    }
+    return categoriesCache;
+  }
+
+  function categorySelect(id, value, label = 'Categoría') {
+    const opts = categoriesCache
+      .map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === value ? 'selected' : ''}>${escapeHtml(c.name)}</option>`)
+      .join('');
+    return `<label class="form-label">${label}<select class="form-input" id="${id}"><option value="">— Sin categoría —</option>${opts}</select></label>`;
+  }
+
   function channelSelect(id, value, label = 'Canal') {
     const opts = channelsCache
       .map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === value ? 'selected' : ''}>#${escapeHtml(c.name)}</option>`)
@@ -86,6 +106,7 @@ function initModuleModals(deps) {
     modalGuildId = getGuildId();
     channelsCache = [];
     rolesCache = [];
+    categoriesCache = [];
     if (!modalGuildId) return;
     if (moduleId === 'registro') return openRegistro();
     if (moduleId === 'kill') return openKill();
@@ -436,32 +457,35 @@ function initModuleModals(deps) {
   }
 
   async function openUtilidad() {
-    await ensureChannels();
+    await ensureCategories();
     const r = await api(`/api/guilds/${modalGuildId}/utc`);
     if (!r.ok) return alert('No se pudo cargar la configuración UTC');
     const cfg = await r.json();
-    const tick = cfg.tickSeconds || 30;
+    const mins = cfg.renameMinutes || 10;
+    const active = cfg.channelId
+      ? `<p class="modal-meta">Reloj activo — ID canal: <code>${escapeHtml(cfg.channelId)}</code></p>`
+      : '<p class="modal-meta">No hay reloj UTC activo.</p>';
     openModal(
       'Reloj UTC',
       `<div class="modal-section">
-        <p class="modal-meta">El bot publicará un mensaje fijado en el canal elegido y lo actualizará cada ${tick} segundos.</p>
-        ${channelSelect('utc-ch', cfg.channelId, 'Canal del reloj')}
+        ${active}
+        <p class="modal-meta">Crea un <strong>canal de voz</strong> cuyo nombre muestra la hora UTC. Se renombra cada ${mins} min (límite de Discord).</p>
+        ${categorySelect('utc-cat', '', 'Categoría (opcional)')}
         <div class="form-actions">
-          <button type="button" class="btn btn-accent" data-act="save">Activar reloj</button>
+          <button type="button" class="btn btn-accent" data-act="save">Crear canal reloj</button>
           <button type="button" class="btn btn-danger" data-act="clear">Quitar reloj</button>
         </div>
       </div>`,
     );
     body.querySelector('[data-act="save"]').addEventListener('click', async () => {
-      const ch = document.getElementById('utc-ch').value;
-      if (!ch) return alert('Elige un canal.');
+      const cat = document.getElementById('utc-cat').value || null;
       const res = await api(`/api/guilds/${modalGuildId}/utc`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelId: ch }),
+        body: JSON.stringify({ create: true, categoryId: cat }),
       });
       if (res.ok) {
-        alert('Reloj UTC activado en el canal.');
+        alert('Canal de voz reloj UTC creado.');
         closeModal();
       } else alert((await res.json().catch(() => ({}))).error || 'Error');
     });
@@ -469,10 +493,10 @@ function initModuleModals(deps) {
       const res = await api(`/api/guilds/${modalGuildId}/utc`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ channelId: null }),
+        body: JSON.stringify({ create: false }),
       });
       if (res.ok) {
-        alert('Reloj UTC eliminado.');
+        alert('Canal reloj UTC eliminado.');
         closeModal();
       } else alert((await res.json().catch(() => ({}))).error || 'Error');
     });
