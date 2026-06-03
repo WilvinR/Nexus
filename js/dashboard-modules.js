@@ -1,5 +1,5 @@
 /* Configuración por módulo (modales) — requiere api() y escapeHtml del dashboard */
-const CONFIG_MODULES = new Set(['registro', 'kill', 'battle', 'logs']);
+const CONFIG_MODULES = new Set(['registro', 'kill', 'battle', 'logs', 'utilidad']);
 
 let modalGuildId = null;
 let channelsCache = [];
@@ -91,6 +91,7 @@ function initModuleModals(deps) {
     if (moduleId === 'kill') return openKill();
     if (moduleId === 'battle') return openBattle();
     if (moduleId === 'logs') return openLogs();
+    if (moduleId === 'utilidad') return openUtilidad();
   };
 
   async function openRegistro() {
@@ -429,6 +430,49 @@ function initModuleModals(deps) {
       });
       if (res.ok) {
         alert('Canal de logs guardado.');
+        closeModal();
+      } else alert((await res.json().catch(() => ({}))).error || 'Error');
+    });
+  }
+
+  async function openUtilidad() {
+    await ensureChannels();
+    const r = await api(`/api/guilds/${modalGuildId}/utc`);
+    if (!r.ok) return alert('No se pudo cargar la configuración UTC');
+    const cfg = await r.json();
+    const tick = cfg.tickSeconds || 30;
+    openModal(
+      'Reloj UTC',
+      `<div class="modal-section">
+        <p class="modal-meta">El bot publicará un mensaje fijado en el canal elegido y lo actualizará cada ${tick} segundos.</p>
+        ${channelSelect('utc-ch', cfg.channelId, 'Canal del reloj')}
+        <div class="form-actions">
+          <button type="button" class="btn btn-accent" data-act="save">Activar reloj</button>
+          <button type="button" class="btn btn-danger" data-act="clear">Quitar reloj</button>
+        </div>
+      </div>`,
+    );
+    body.querySelector('[data-act="save"]').addEventListener('click', async () => {
+      const ch = document.getElementById('utc-ch').value;
+      if (!ch) return alert('Elige un canal.');
+      const res = await api(`/api/guilds/${modalGuildId}/utc`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: ch }),
+      });
+      if (res.ok) {
+        alert('Reloj UTC activado en el canal.');
+        closeModal();
+      } else alert((await res.json().catch(() => ({}))).error || 'Error');
+    });
+    body.querySelector('[data-act="clear"]').addEventListener('click', async () => {
+      const res = await api(`/api/guilds/${modalGuildId}/utc`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: null }),
+      });
+      if (res.ok) {
+        alert('Reloj UTC eliminado.');
         closeModal();
       } else alert((await res.json().catch(() => ({}))).error || 'Error');
     });

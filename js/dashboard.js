@@ -115,7 +115,7 @@ function renderGuildGrid() {
 
 function renderModules(modList, guildId, modules) {
   modList.innerHTML = '';
-  const configurable = moduleModals?.CONFIG_MODULES || new Set(['registro', 'kill', 'battle', 'logs']);
+  const configurable = moduleModals?.CONFIG_MODULES || new Set(['registro', 'kill', 'battle', 'logs', 'utilidad']);
   for (const m of modules) {
     const showConfig = configurable.has(m.id);
     const emoji = MODULE_EMOJI[m.id] || '⚙️';

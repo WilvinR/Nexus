@@ -1,5 +1,6 @@
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { albionGuild, albionAlliance, albionPlayer } = require('./albionApi');
+const { getUtcClock, setupUtcInGuild, removeUtcFromGuild, UTC_TICK_MS } = require('./utcClock');
 
 function gid(id) {
   return String(id);
@@ -465,6 +466,42 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
       `)
       .run(gid(ctx.guildId), channelId, paused);
     res.json({ ok: true, channelId, paused: Boolean(paused) });
+  });
+
+  app.get('/api/guilds/:guildId/utc', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const row = getUtcClock(getDb, ctx.guildId);
+    res.json({
+      ok: true,
+      channelId: row?.channel_id ?? null,
+      messageId: row?.message_id ?? null,
+      tickSeconds: UTC_TICK_MS / 1000,
+    });
+  });
+
+  app.patch('/api/guilds/:guildId/utc', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const channelId =
+      req.body?.channelId != null && String(req.body.channelId).trim() !== ''
+        ? String(req.body.channelId).trim()
+        : null;
+
+    if (!channelId) {
+      await removeUtcFromGuild(client, getDb, gid(ctx.guildId), log);
+      return res.json({ ok: true, channelId: null });
+    }
+
+    const ch = ctx.guild.channels.cache.get(channelId);
+    if (!ch?.isTextBased()) return res.status(400).json({ error: 'Canal no válido' });
+
+    try {
+      await setupUtcInGuild(client, getDb, ctx.guildId, channelId, log);
+      res.json({ ok: true, channelId });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo activar el reloj UTC' });
+    }
   });
 }
 
