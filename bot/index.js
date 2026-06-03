@@ -258,7 +258,6 @@ client.once(Events.ClientReady, (c) => {
           ownerId: g.ownerId,
           joinedAt: g.joinedAt?.getTime?.() || Date.now(),
         });
-        welcomeGuildOwner(g).catch(() => {});
       }
     } catch (e) {
       log.error(e);
@@ -277,26 +276,15 @@ client.on(Events.GuildCreate, async (g) => {
       joinedAt: g.joinedAt?.getTime?.() || Date.now(),
     });
     logSystem(getDb, 'info', `Bot añadido a ${g.name}`, { guildId: g.id });
-    welcomeGuildOwner(g, owner).catch(() => {});
   } catch {
     /* ignore */
   }
 });
 
-async function welcomeGuildOwner(g, ownerUser) {
-  const gid = String(g.id);
-  const row = getDb().prepare('SELECT 1 FROM welcome_guild_sent WHERE guild_id = ?').get(gid);
-  if (row) return;
-
-  const owner = ownerUser || (await g.fetchOwner().catch(() => null));
-  if (!owner?.user) {
-    log.warn(`Welcome DM: no se pudo obtener dueño de ${g.name} (${gid})`);
-    return;
-  }
-
+function buildWelcomeDmText() {
   const web = (process.env.WEB_URL || 'https://nexus-two-swart.vercel.app').replace(/\/$/, '');
   const invite = buildInviteUrl();
-  const text =
+  return (
     '👋 Hola, soy **Nexus**.\n\n' +
     'Soy un bot especializado en la gestión de gremios de **Albion Online**.\n\n' +
     '**Funciones principales:**\n' +
@@ -306,16 +294,29 @@ async function welcomeGuildOwner(g, ownerUser) {
     '🏰 Herramientas para líderes de gremio\n' +
     '🌐 Dashboard web\n\n' +
     `🔗 [Invítame a tu servidor](${invite})\n` +
-    `🌐 [Visita nuestra página web](${web})`;
+    `🌐 [Visita nuestra página web](${web})`
+  );
+}
+
+async function welcomeNewMember(member) {
+  if (!member?.user || member.user.bot) return;
+
+  const uid = String(member.user.id);
+  const row = getDb().prepare('SELECT 1 FROM welcome_dm_sent WHERE user_id = ?').get(uid);
+  if (row) return;
 
   try {
-    await owner.user.send(text);
-    getDb().prepare('INSERT INTO welcome_guild_sent (guild_id, sent_at) VALUES (?, ?)').run(gid, Date.now());
-    log.info(`Welcome DM enviado al dueño de ${g.name}`);
+    await member.user.send(buildWelcomeDmText());
+    getDb().prepare('INSERT INTO welcome_dm_sent (user_id, sent_at) VALUES (?, ?)').run(uid, Date.now());
+    log.info(`Welcome DM enviado a ${member.user.tag} (${member.guild?.name || '?'})`);
   } catch (e) {
-    log.warn(`Welcome DM a ${owner.user.tag} (${g.name}): ${e.message} — ¿DMs cerrados?`);
+    log.warn(`Welcome DM a ${member.user.tag}: ${e.message} — ¿DMs cerrados?`);
   }
 }
+
+client.on(Events.GuildMemberAdd, (member) => {
+  welcomeNewMember(member).catch(() => {});
+});
 
 client.on(Events.InteractionCreate, async (ix) => {
   try {
