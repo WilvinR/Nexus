@@ -45,19 +45,20 @@ function guildInitial(name) {
 }
 
 function setGuildHeader(g) {
-  const url = guildIconUrl(g);
-  const img = document.getElementById('guild-config-icon');
-  const ph = document.getElementById('guild-config-placeholder');
+  const avatar = document.getElementById('guild-config-avatar');
+  avatar.replaceChildren();
   document.getElementById('guild-config-name').textContent = g.name;
+  const url = guildIconUrl(g);
   if (url) {
+    const img = document.createElement('img');
     img.src = url;
     img.alt = g.name;
-    img.hidden = false;
-    ph.hidden = true;
+    avatar.appendChild(img);
   } else {
-    img.hidden = true;
-    ph.hidden = false;
+    const ph = document.createElement('span');
+    ph.className = 'guild-avatar-ph';
     ph.textContent = guildInitial(g.name);
+    avatar.appendChild(ph);
   }
 }
 

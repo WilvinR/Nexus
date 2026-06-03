@@ -429,8 +429,8 @@ footer {
 
 .guild-pick img,
 .guild-pick-ph,
-.guild-config-icon,
-.guild-config-placeholder {
+.guild-avatar img,
+.guild-avatar-ph {
   width: 72px;
   height: 72px;
   border-radius: 50%;
@@ -438,12 +438,19 @@ footer {
 }
 
 .guild-pick img,
-.guild-config-icon {
+.guild-avatar img {
+  display: block;
   object-fit: cover;
 }
 
+.guild-avatar {
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+}
+
 .guild-pick-ph,
-.guild-config-placeholder {
+.guild-avatar-ph {
   display: flex;
   align-items: center;
   justify-content: center;
