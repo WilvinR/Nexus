@@ -839,6 +839,21 @@ footer {
 
 .admin-link { color: var(--accent); }
 
+.owner-setup {
+  color: #fbbf24;
+  font-size: 0.9rem;
+}
+
+.owner-setup code {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.dash-user code {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
 .chart-heading {
   font-family: 'Bebas Neue', sans-serif;
   letter-spacing: 1px;

@@ -493,9 +493,22 @@ async function loadServices() {
 }
 
 async function initAdmin() {
+  const meRes = await api('/api/me');
+  const me = meRes.ok ? await meRes.json() : null;
   const owner = await api('/api/admin/me');
   if (!owner.ok) {
     show('login');
+    const loginSec = document.getElementById('admin-login');
+    if (me && loginSec) {
+      const extra = document.createElement('p');
+      extra.className = 'dash-sub owner-setup';
+      if (!me.botOwnerConfigured) {
+        extra.innerHTML = `Pon en Discloud: <code>BOT_OWNER_ID=${esc(me.discordUserId)}</code> y reinicia el bot.`;
+      } else {
+        extra.textContent = `Tu ID (${me.discordUserId}) no coincide con BOT_OWNER_ID del servidor.`;
+      }
+      loginSec.appendChild(extra);
+    }
     return;
   }
   show('panel');

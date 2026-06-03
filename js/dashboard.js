@@ -174,7 +174,14 @@ async function loadDashboard() {
     return;
   }
   const me = await meRes.json();
-  document.getElementById('user-label').textContent = `Conectado como ${me.user.username}`;
+  let userLine = `Conectado como ${me.user.username}`;
+  if (me.isOwner) userLine += ' · 👑 Dueño del bot';
+  else if (!me.botOwnerConfigured) {
+    userLine += ` · <span class="owner-setup">Configura <code>BOT_OWNER_ID=${me.discordUserId}</code> en Discloud</span>`;
+  } else {
+    userLine += ` · ID: <code>${me.discordUserId}</code> (no coincide con BOT_OWNER_ID)`;
+  }
+  document.getElementById('user-label').innerHTML = userLine;
   showDash();
   showGuildGrid();
 
@@ -191,9 +198,12 @@ async function loadDashboard() {
 
   const data = await dashRes.json();
   const hintEl = document.getElementById('dash-hint');
-  let hint = data.ownersOnly
-    ? 'Toca un servidor. Activa o desactiva cualquier módulo; Registro, Killboard, Battle y Logs tienen configuración avanzada.'
-    : 'Toca un servidor. Activa o desactiva módulos; algunos incluyen botón Configurar.';
+  let hint = data.isOwner
+    ? '👑 Dueño del bot: ves todos los servidores con Nexus.'
+    : data.ownersOnly
+      ? 'Toca un servidor donde seas dueño de Discord (con Nexus instalado).'
+      : 'Toca un servidor que administres.';
+  hint += ' Registro, Killboard, Battle y Logs tienen Configurar.';
   if (me.isOwner) {
     hint += ' · <a href="admin.html" class="admin-link">Panel owner</a>';
   }

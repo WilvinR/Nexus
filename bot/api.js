@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { MODULES, getGuildModuleStates, setModuleEnabled } = require('./modules');
 const { registerGuildConfigRoutes } = require('./guildConfigRoutes');
-const { registerAdminRoutes, logSystem } = require('./adminRoutes');
+const { registerAdminRoutes, logSystem, isBotOwner, getBotOwnerIds } = require('./adminRoutes');
 
 let server = null;
 const userGuildCache = new Map();
@@ -96,17 +96,36 @@ function buildManagedGuildList(client, rawGuilds) {
 }
 
 async function assertGuildAccess(client, session, guildId, log) {
+  const id = String(guildId);
+  if (!client.guilds.cache.has(id)) {
+    return { ok: false, status: 400, error: 'Nexus no está en este servidor' };
+  }
+  if (isBotOwner(session.user_id)) {
+    return { ok: true, guildId: id, botOwner: true };
+  }
   const guilds = await fetchUserGuilds(session, log);
   if (!guilds) return { ok: false, status: 502, error: 'No se pudo verificar con Discord' };
-  const id = String(guildId);
   const g = guilds.find((x) => String(x.id) === id);
   if (!g || !canManageGuild(g)) {
     return { ok: false, status: 403, error: 'Sin permiso (solo dueños del servidor)' };
   }
-  if (!client.guilds.cache.has(id)) {
-    return { ok: false, status: 400, error: 'Nexus no está en este servidor' };
-  }
   return { ok: true, guildId: id };
+}
+
+function buildGuildListForUser(client, rawGuilds, userId) {
+  if (isBotOwner(userId)) {
+    return [...client.guilds.cache.values()]
+      .map((g) => ({
+        id: String(g.id),
+        name: g.name,
+        icon: g.icon,
+        owner: true,
+        botOwnerAccess: true,
+        botPresent: true,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return buildManagedGuildList(client, rawGuilds);
 }
 
 async function discordTokenExchange(code) {
@@ -263,34 +282,55 @@ function start(client, log, getDb, hooks = {}) {
   });
 
   app.get('/api/me', sessionAuth, async (req, res) => {
-    const { isBotOwner } = require('./adminRoutes');
+    const uid = req.session.user_id;
+    const ownerIds = getBotOwnerIds();
     res.json({
       ok: true,
       user: {
-        id: req.session.user_id,
+        id: uid,
         username: req.session.username,
         avatar: req.session.avatar,
       },
-      isOwner: isBotOwner(req.session.user_id),
+      isOwner: isBotOwner(uid),
+      botOwnerConfigured: ownerIds.length > 0,
+      discordUserId: uid,
     });
   });
 
   app.get('/api/me/guilds', sessionAuth, async (req, res) => {
+    const uid = req.session.user_id;
+    if (isBotOwner(uid)) {
+      return res.json({ ok: true, guilds: buildGuildListForUser(client, [], uid), botOwner: true });
+    }
     const raw = await fetchUserGuilds(req.session, log);
     if (!raw) return res.status(502).json({ error: 'No se pudieron cargar tus servidores' });
-    res.json({ ok: true, guilds: buildManagedGuildList(client, raw) });
+    res.json({ ok: true, guilds: buildGuildListForUser(client, raw, uid) });
   });
 
   app.get('/api/me/dashboard', sessionAuth, async (req, res) => {
-    const raw = await fetchUserGuilds(req.session, log);
-    if (!raw) return res.status(502).json({ error: 'No se pudieron cargar tus servidores' });
+    const uid = req.session.user_id;
+    const botOwner = isBotOwner(uid);
+    let guilds;
+    if (botOwner) {
+      guilds = buildGuildListForUser(client, [], uid);
+    } else {
+      const raw = await fetchUserGuilds(req.session, log);
+      if (!raw) return res.status(502).json({ error: 'No se pudieron cargar tus servidores' });
+      guilds = buildGuildListForUser(client, raw, uid);
+    }
 
-    const guilds = buildManagedGuildList(client, raw).map((g) => ({
+    const withModules = guilds.map((g) => ({
       ...g,
       modules: getGuildModuleStates(getDb, g.id),
     }));
 
-    res.json({ ok: true, guilds, ownersOnly: ownersOnly() });
+    res.json({
+      ok: true,
+      guilds: withModules,
+      ownersOnly: ownersOnly(),
+      isOwner: botOwner,
+      botOwnerConfigured: getBotOwnerIds().length > 0,
+    });
   });
 
   app.get('/api/guilds/:guildId/modules', sessionAuth, async (req, res) => {
