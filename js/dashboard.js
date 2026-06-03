@@ -177,8 +177,6 @@ async function loadDashboard() {
   let userLine = `Conectado como ${me.user.username}`;
   if (me.isOwner) {
     userLine += ' · 👑 Dueño del bot';
-  } else if (!me.botOwnerConfigured) {
-    userLine += ` · <span class="owner-setup">Configura <code>BOT_OWNER_ID=${me.discordUserId}</code> en Discloud</span>`;
   }
   document.getElementById('user-label').innerHTML = userLine;
   showDash();
