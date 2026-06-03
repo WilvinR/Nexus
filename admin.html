@@ -19,6 +19,7 @@
     <section id="admin-login" class="dash-panel">
       <h1 class="dash-title">PANEL DE ADMINISTRACIÓN</h1>
       <p class="dash-sub">Solo el dueño del bot (BOT_OWNER_ID) puede acceder.</p>
+      <p id="auth-error" class="auth-error hidden" role="alert"></p>
       <button type="button" class="btn btn-discord btn-lg" id="admin-btn-login">Iniciar sesión con Discord</button>
     </section>
 
@@ -61,6 +62,7 @@
     </section>
   </main>
 
+  <script src="js/nexus-auth.js"></script>
   <script src="js/admin.js"></script>
 </body>
 </html>

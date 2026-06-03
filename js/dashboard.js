@@ -1,5 +1,4 @@
 const NEXUS_API = 'https://nexus-bot.discloud.app';
-const TOKEN_KEY = 'nexus_session';
 
 let guildsData = [];
 let currentGuildId = null;
@@ -19,24 +18,21 @@ const MODULE_EMOJI = {
 };
 
 function api(path, opts = {}) {
-  const headers = { ...(opts.headers || {}) };
-  const token = sessionStorage.getItem(TOKEN_KEY);
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return fetch(`${NEXUS_API.replace(/\/$/, '')}${path}`, { ...opts, headers });
+  return fetch(`${NEXUS_API.replace(/\/$/, '')}${path}`, {
+    ...opts,
+    headers: NexusAuth.authHeaders(opts.headers || {}),
+  });
 }
 
-function saveTokenFromUrl() {
-  const p = new URLSearchParams(location.search);
-  const t = p.get('token');
-  if (t) {
-    sessionStorage.setItem(TOKEN_KEY, t);
-    history.replaceState({}, '', location.pathname);
-  }
+function showAuthError(msg) {
+  const el = document.getElementById('auth-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
 }
 
 function loginRedirect() {
-  const back = `${location.origin}${location.pathname}`;
-  window.location.href = `${NEXUS_API}/api/auth/login?redirect=${encodeURIComponent(back)}`;
+  NexusAuth.startLogin(NEXUS_API);
 }
 
 function showLogin() {
@@ -169,7 +165,7 @@ function renderModules(modList, guildId, modules) {
 async function loadDashboard() {
   const meRes = await api('/api/me');
   if (!meRes.ok) {
-    sessionStorage.removeItem(TOKEN_KEY);
+    NexusAuth.clearToken();
     showLogin();
     return;
   }
@@ -232,14 +228,18 @@ document.addEventListener('DOMContentLoaded', () => {
   window.__dashResetCaches = () => {
     /* dashboard-modules.js resetea al abrir modal */
   };
-  saveTokenFromUrl();
+  NexusAuth.applyTokenFromUrl(showAuthError);
   document.getElementById('btn-login').addEventListener('click', loginRedirect);
   document.getElementById('btn-logout').addEventListener('click', () => {
-    sessionStorage.removeItem(TOKEN_KEY);
+    NexusAuth.clearToken();
     showLogin();
   });
   document.getElementById('btn-back').addEventListener('click', showGuildGrid);
 
-  if (sessionStorage.getItem(TOKEN_KEY)) loadDashboard();
+  if (NexusAuth.getToken()) loadDashboard();
   else showLogin();
+
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted && NexusAuth.getToken()) loadDashboard();
+  });
 });

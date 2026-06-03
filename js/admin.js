@@ -1,13 +1,12 @@
 const NEXUS_API = 'https://nexus-bot.discloud.app';
-const TOKEN_KEY = 'nexus_session';
 
 let allGuilds = [];
 
 function api(path, opts = {}) {
-  const headers = { ...(opts.headers || {}) };
-  const t = sessionStorage.getItem(TOKEN_KEY);
-  if (t) headers.Authorization = `Bearer ${t}`;
-  return fetch(`${NEXUS_API.replace(/\/$/, '')}${path}`, { ...opts, headers });
+  return fetch(`${NEXUS_API.replace(/\/$/, '')}${path}`, {
+    ...opts,
+    headers: NexusAuth.authHeaders(opts.headers || {}),
+  });
 }
 
 function esc(s) {
@@ -384,7 +383,7 @@ async function loadErrors() {
 
   document.getElementById('err-export').onclick = async (e) => {
     e.preventDefault();
-    const t = sessionStorage.getItem(TOKEN_KEY);
+    const t = NexusAuth.getToken();
     const r = await fetch(`${NEXUS_API}/api/admin/errors/export`, {
       headers: { Authorization: `Bearer ${t}` },
     });
@@ -540,19 +539,22 @@ async function initAdmin() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  const p = new URLSearchParams(location.search);
-  const t = p.get('token');
-  if (t) {
-    sessionStorage.setItem(TOKEN_KEY, t);
-    history.replaceState({}, '', location.pathname);
-  }
-  document.getElementById('admin-btn-login').onclick = () => {
-    location.href = `${NEXUS_API}/api/auth/login?redirect=${encodeURIComponent(location.href)}`;
-  };
+  NexusAuth.applyTokenFromUrl((msg) => {
+    const el = document.getElementById('auth-error');
+    if (el) {
+      el.textContent = msg;
+      el.classList.remove('hidden');
+    }
+  });
+  document.getElementById('admin-btn-login').onclick = () => NexusAuth.startLogin(NEXUS_API);
   document.getElementById('admin-logout').onclick = () => {
-    sessionStorage.removeItem(TOKEN_KEY);
+    NexusAuth.clearToken();
     show('login');
   };
-  if (sessionStorage.getItem(TOKEN_KEY)) initAdmin();
+  if (NexusAuth.getToken()) initAdmin();
   else show('login');
+
+  window.addEventListener('pageshow', (e) => {
+    if (e.persisted && NexusAuth.getToken()) initAdmin();
+  });
 });

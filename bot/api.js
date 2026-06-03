@@ -128,7 +128,7 @@ function buildGuildListForUser(client, rawGuilds, userId) {
   return buildManagedGuildList(client, rawGuilds);
 }
 
-async function discordTokenExchange(code) {
+async function discordTokenExchange(code, log) {
   const body = new URLSearchParams({
     client_id: getClientId(),
     client_secret: process.env.DISCORD_CLIENT_SECRET,
@@ -141,7 +141,11 @@ async function discordTokenExchange(code) {
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body,
   });
-  if (!r.ok) return null;
+  if (!r.ok) {
+    const detail = await r.text().catch(() => '');
+    if (log) log.warn(`OAuth token: ${r.status} ${detail.slice(0, 200)}`);
+    return null;
+  }
   return r.json();
 }
 
@@ -252,8 +256,11 @@ function start(client, log, getDb, hooks = {}) {
         return res.status(503).send('Falta DISCORD_CLIENT_SECRET en Discloud');
       }
 
-      const tokens = await discordTokenExchange(code);
-      if (!tokens?.access_token) return res.status(401).send('No se pudo autenticar con Discord');
+      const tokens = await discordTokenExchange(code, log);
+      if (!tokens?.access_token) {
+        const sep = redirectTo.includes('?') ? '&' : '?';
+        return res.redirect(`${redirectTo}${sep}auth_error=discord`);
+      }
 
       const user = await discordApi('/users/@me', tokens.access_token);
       if (!user?.id) return res.status(401).send('Usuario no válido');
