@@ -33,6 +33,9 @@ async function loadPublicStats() {
         animateCount(el, data.guilds ?? 0);
         if (botEl) botEl.textContent = data.ready ? 'Online' : 'Conectando…';
         if (data.invite) setInviteLinks(data.invite);
+        if (botEl && typeof data.guilds === 'number') {
+          botEl.title = `${data.guilds} servidores con Nexus`;
+        }
         return;
       }
     }
@@ -79,9 +82,10 @@ function initModuleCards() {
 document.addEventListener('DOMContentLoaded', () => {
   loadPublicStats();
   initModuleCards();
-  for (const id of ['btn-dashboard', 'btn-dashboard-2']) {
-    document.getElementById(id)?.addEventListener('click', () => {
-      alert('Dashboard — inicio de sesión con Discord próximamente.');
-    });
-  }
+  document.getElementById('btn-dashboard')?.addEventListener('click', () => {
+    window.location.href = 'dashboard.html';
+  });
+  document.getElementById('btn-dashboard-2')?.addEventListener('click', () => {
+    window.location.href = 'dashboard.html';
+  });
 });

@@ -21,6 +21,7 @@ const battle = require('./battle');
 const bal = require('./bal');
 const utilidad = require('./utilidad');
 const mercado = require('./mercado');
+const { moduleForInteraction, isModuleEnabled } = require('./modules');
 const modulos = [require('./registro'), kill, moderacion, eventos, musica, battle, bal, utilidad, mercado];
 
 // ——— .env ———
@@ -66,6 +67,14 @@ function getDb() {
     CREATE TABLE IF NOT EXISTS guild_modules (
       guild_id TEXT NOT NULL, module_id TEXT NOT NULL, enabled INTEGER DEFAULT 1,
       PRIMARY KEY (guild_id, module_id)
+    );
+    CREATE TABLE IF NOT EXISTS auth_sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      access_token TEXT NOT NULL,
+      username TEXT,
+      avatar TEXT,
+      created_at INTEGER NOT NULL
     );
     CREATE TABLE IF NOT EXISTS registro_alliances (
       id INTEGER PRIMARY KEY AUTOINCREMENT, discord_guild_id TEXT NOT NULL,
@@ -203,7 +212,7 @@ client.once(Events.ClientReady, (c) => {
       const c = ctx();
       if (logs.onInit) logs.onInit(client, c);
       for (const m of modulos) if (m.onInit) m.onInit(client, c);
-      api.start(client, log);
+      api.start(client, log, getDb);
     } catch (e) {
       log.error(e);
     }
@@ -215,6 +224,14 @@ client.on(Events.InteractionCreate, async (ix) => {
   try {
     if (!ix.guildId) return;
     const c = ctx();
+    const modId = moduleForInteraction(ix);
+    if (modId && !isModuleEnabled(getDb, ix.guildId, modId)) {
+      await ix.reply({
+        content: `❌ El módulo **${modId}** está desactivado en este servidor.`,
+        ephemeral: true,
+      });
+      return;
+    }
     if (await logs.handleInteraction(ix, c)) return;
     for (const m of modulos) {
       if (m.handleInteraction && (await m.handleInteraction(ix, c))) return;

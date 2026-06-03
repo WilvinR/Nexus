@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — Nexus</title>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="orb orb1"></div>
+  <div class="orb orb2"></div>
+
+  <nav>
+    <a href="/" class="logo">NEX<span>US</span></a>
+  </nav>
+
+  <main class="dash-wrap" id="app">
+    <section id="view-login" class="dash-panel">
+      <div class="section-label">// PANEL DE CONTROL</div>
+      <h1 class="dash-title">DASHBOARD</h1>
+      <p class="dash-sub">Inicia sesión con Discord. Solo verás servidores donde eres dueño o tienes permiso de administrar y Nexus está instalado.</p>
+      <button type="button" class="btn btn-discord btn-lg" id="btn-login">Iniciar sesión con Discord</button>
+    </section>
+
+    <section id="view-dash" class="dash-panel hidden">
+      <div class="dash-head">
+        <div>
+          <div class="section-label">// CONFIGURACIÓN</div>
+          <h1 class="dash-title">TUS SERVIDORES</h1>
+          <p class="dash-user" id="user-label"></p>
+        </div>
+        <button type="button" class="btn btn-accent" id="btn-logout">Cerrar sesión</button>
+      </div>
+      <p class="dash-hint">Activa o desactiva módulos por servidor. Los comandos del módulo apagado dejarán de funcionar.</p>
+      <div id="guild-list" class="guild-list"></div>
+    </section>
+  </main>
+
+  <script src="js/dashboard.js"></script>
+</body>
+</html>
