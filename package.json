@@ -1,7 +1,0 @@
-{
-  "name": "nexus",
-  "private": true,
-  "scripts": {
-    "build": "node scripts/vercel-build.js"
-  }
-}

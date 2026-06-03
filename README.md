@@ -1,31 +1,20 @@
 # Nexus
 
-Bot de Discord para gremios de **Albion Online** + sitio web / dashboard.
-
-## Estructura
+Bot de Discord para gremios de **Albion Online** + sitio web.
 
 ```
 Nexus/
-├── bot/     → Discord bot (Discloud: nexus-bot.discloud.app)
-└── web/     → Landing + dashboard (Vercel / GitHub)
+├── bot/     → Discloud (nexus-bot.discloud.app)
+└── web/     → Vercel
+    ├── index.html
+    ├── css/style.css
+    └── js/script.js
 ```
 
-| Parte | Host | Repo path |
-|-------|------|-----------|
-| Bot + API | [Discloud](https://nexus-bot.discloud.app) | `bot/` |
-| Web | Vercel | `web/` |
+## Vercel
 
-## Bot (Discloud)
+**Root Directory:** `web` · Framework: **Other** · Deploy
 
-1. Comprime y sube la carpeta `bot/` (con `discloud.config`, sin `node_modules`).
-2. Variables en `.env` o panel Discloud: `DISCORD_TOKEN`, `API_ENABLED`, `API_SECRET`, etc.
+## Discloud
 
-## Web (Vercel)
-
-1. Edita archivos en `web/`
-2. Ejecuta `npm run build` (copia `web/` → `public/`)
-3. Commit y push — Vercel sirve la carpeta `public/`
-
-**En Vercel:** Root Directory **vacío** (raíz del repo). Framework: **Other**.
-
-Tras el deploy, en Discloud: `API_CORS=https://tu-dominio.vercel.app`
+Sube la carpeta `bot/`. Variables: `DISCORD_TOKEN`, `API_ENABLED`, `API_SECRET`, `API_CORS` (URL de Vercel).

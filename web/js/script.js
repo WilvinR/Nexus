@@ -1,6 +1,7 @@
+const NEXUS_API = 'https://nexus-bot.discloud.app';
+
 function apiUrl(path) {
-  const base = (window.NEXUS_API || '').replace(/\/$/, '');
-  return `${base}${path}`;
+  return `${NEXUS_API.replace(/\/$/, '')}${path}`;
 }
 
 async function loadPublicStats() {
@@ -14,15 +15,11 @@ async function loadPublicStats() {
     if (!data.ok) return;
 
     animateCount(el, data.guilds ?? 0);
-    if (botEl && data.bot) {
-      botEl.textContent = data.ready ? 'Online' : 'Conectando…';
-    }
+    if (botEl && data.bot) botEl.textContent = data.ready ? 'Online' : 'Conectando…';
 
-    const inviteBtn = document.getElementById('btn-invite');
-    const inviteBtn2 = document.getElementById('btn-invite-2');
-    if (data.invite) {
-      if (inviteBtn) inviteBtn.href = data.invite;
-      if (inviteBtn2) inviteBtn2.href = data.invite;
+    for (const id of ['btn-invite', 'btn-invite-2']) {
+      const btn = document.getElementById(id);
+      if (btn && data.invite) btn.href = data.invite;
     }
   } catch {
     el.textContent = '—';
@@ -45,9 +42,7 @@ function initModuleCards() {
   const cards = document.querySelectorAll('.mod-card');
   const reveal = () => {
     cards.forEach((card) => {
-      if (card.getBoundingClientRect().top < window.innerHeight * 0.88) {
-        card.classList.add('visible');
-      }
+      if (card.getBoundingClientRect().top < window.innerHeight * 0.88) card.classList.add('visible');
     });
   };
   reveal();
@@ -57,4 +52,9 @@ function initModuleCards() {
 document.addEventListener('DOMContentLoaded', () => {
   loadPublicStats();
   initModuleCards();
+  for (const id of ['btn-dashboard', 'btn-dashboard-2']) {
+    document.getElementById(id)?.addEventListener('click', () => {
+      alert('Dashboard — inicio de sesión con Discord próximamente.');
+    });
+  }
 });
