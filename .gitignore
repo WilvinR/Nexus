@@ -1,0 +1,17 @@
+# Bot
+bot/node_modules/
+bot/nexus.db
+bot/nexus.db-*
+bot/.env
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+bot/*.zip
+
