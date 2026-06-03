@@ -22,7 +22,6 @@ const mercado = require('./mercado');
 const { moduleForInteraction, isModuleEnabled } = require('./modules');
 const commandSync = require('./commandSync');
 const { logError, logSystem } = require('./adminRoutes');
-const { getBotOwnerIds } = require('./owner');
 const { logCommand, ensureGuildMeta, startStatsScheduler } = require('./stats');
 const { buildInviteUrl } = require('./invite');
 const modulos = [require('./registro'), kill, moderacion, eventos, musica, battle, bal, utilidad, mercado];
@@ -247,7 +246,10 @@ client.once(Events.ClientReady, (c) => {
         syncGuildCommands: (guildId) => commandSync.syncGuildCommands(client, getDb, log, guildId),
       });
       logSystem(getDb, 'info', 'Bot iniciado', {});
-      const ownerIds = getBotOwnerIds();
+      const ownerIds = (process.env.BOT_OWNER_ID || process.env.BOT_OWNER_IDS || '')
+        .split(/[,;\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
       if (ownerIds.length) log.info(`BOT_OWNER_ID: ${ownerIds.length} id(s) configurado(s)`);
       else log.warn('BOT_OWNER_ID no está en .env / Discloud — el panel admin no reconocerá al dueño');
       startStatsScheduler(getDb, client, log);

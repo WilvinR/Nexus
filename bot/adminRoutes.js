@@ -1,7 +1,22 @@
 const os = require('os');
 const { getGuildModuleStates } = require('./modules');
 const { getChartData, getGlobalStats, ensureGuildMeta } = require('./stats');
-const { getBotOwnerIds, isBotOwner } = require('./owner');
+
+function getBotOwnerIds() {
+  const raw = process.env.BOT_OWNER_ID || process.env.BOT_OWNER_IDS || '';
+  return raw
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function isBotOwner(userId) {
+  if (!userId) return false;
+  const ids = getBotOwnerIds();
+  if (!ids.length) return false;
+  const uid = String(userId).trim();
+  return ids.some((id) => id === uid);
+}
 
 function ownerAuth(req, res, next) {
   if (!isBotOwner(req.session?.user_id)) {
@@ -328,4 +343,11 @@ function registerAdminRoutes(app, { client, getDb, log, sessionAuth }) {
   });
 }
 
-module.exports = { registerAdminRoutes, logSystem, logError, saveSuggestion };
+module.exports = {
+  registerAdminRoutes,
+  isBotOwner,
+  getBotOwnerIds,
+  logSystem,
+  logError,
+  saveSuggestion,
+};
