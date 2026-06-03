@@ -3,10 +3,12 @@ const {
   EmbedBuilder,
   ActionRowBuilder,
   StringSelectMenuBuilder,
+  PermissionFlagsBits,
   Colors,
 } = require('discord.js');
 
 const PREFIX = 'util';
+const UTC_TICK_MS = 30_000;
 
 const CATEGORIES = {
   registro: {
@@ -91,7 +93,9 @@ const CATEGORIES = {
     label: 'Utilidades y Logs',
     emoji: '🔧',
     commands: [
-      { name: '/utc', desc: 'Hora UTC actual (referencia para eventos Albion).' },
+      { name: '/utc hora', desc: 'Muestra la hora UTC actual.' },
+      { name: '/utc canal', desc: 'Publica y fija un reloj UTC en vivo en este canal (Mod).' },
+      { name: '/utc quitar', desc: 'Quita el reloj UTC del servidor (Mod).' },
       { name: '/sugerencia', desc: 'Envía una sugerencia al administrador del bot.' },
       { name: '/ayuda', desc: 'Menú de comandos de Nexus.' },
       { name: '/logs', desc: 'Configura el canal de logs del servidor.' },
@@ -99,6 +103,125 @@ const CATEGORIES = {
     ],
   },
 };
+
+function utcTimeString() {
+  return new Date().toISOString().slice(11, 19);
+}
+
+function utcDateString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function buildUtcClockEmbed() {
+  return new EmbedBuilder()
+    .setTitle('🕐 Reloj UTC')
+    .setDescription(`# ${utcTimeString()}\nReferencia horaria para **Albion Online** y eventos del gremio.`)
+    .setColor(0x00e5ff)
+    .setFooter({ text: `Nexus · ${utcDateString()} UTC · Actualización automática` });
+}
+
+function getUtcClock(getDb, guildId) {
+  return getDb()
+    .prepare('SELECT channel_id, message_id FROM utc_clock WHERE guild_id = ?')
+    .get(String(guildId));
+}
+
+function saveUtcClock(getDb, guildId, channelId, messageId) {
+  getDb()
+    .prepare(`
+      INSERT INTO utc_clock (guild_id, channel_id, message_id) VALUES (?, ?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id, message_id = excluded.message_id
+    `)
+    .run(String(guildId), String(channelId), String(messageId));
+}
+
+function clearUtcClock(getDb, guildId) {
+  getDb().prepare('DELETE FROM utc_clock WHERE guild_id = ?').run(String(guildId));
+}
+
+async function deleteUtcMessage(client, row) {
+  if (!row) return;
+  try {
+    const ch = await client.channels.fetch(row.channel_id).catch(() => null);
+    if (ch?.isTextBased()) {
+      const msg = await ch.messages.fetch(row.message_id).catch(() => null);
+      if (msg) await msg.delete().catch(() => {});
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+async function refreshUtcClock(client, getDb, guildId, log) {
+  const row = getUtcClock(getDb, guildId);
+  if (!row) return;
+
+  const ch = await client.channels.fetch(row.channel_id).catch(() => null);
+  if (!ch?.isTextBased()) {
+    clearUtcClock(getDb, guildId);
+    return;
+  }
+
+  const embed = buildUtcClockEmbed();
+  try {
+    const msg = await ch.messages.fetch(row.message_id).catch(() => null);
+    if (msg) {
+      await msg.edit({ embeds: [embed] });
+      return;
+    }
+    const sent = await ch.send({ embeds: [embed] });
+    saveUtcClock(getDb, guildId, ch.id, sent.id);
+    await sent.pin().catch(() => {});
+  } catch (e) {
+    log.warn(`UTC clock ${guildId}: ${e.message}`);
+    try {
+      const sent = await ch.send({ embeds: [embed] });
+      saveUtcClock(getDb, guildId, ch.id, sent.id);
+      await sent.pin().catch(() => {});
+    } catch (e2) {
+      log.warn(`UTC clock recreate ${guildId}: ${e2.message}`);
+    }
+  }
+}
+
+async function tickAllUtcClocks(client, getDb, log) {
+  const rows = getDb().prepare('SELECT guild_id FROM utc_clock').all();
+  for (const r of rows) {
+    await refreshUtcClock(client, getDb, r.guild_id, log);
+  }
+}
+
+async function setupUtcChannel(ix, { getDb, log }) {
+  const channel = ix.channel;
+  if (!channel?.isTextBased()) {
+    return ix.reply({ content: '❌ Usa este comando en un canal de texto.', ephemeral: true });
+  }
+
+  const me = ix.guild.members.me;
+  if (!me?.permissionsIn(channel).has(PermissionFlagsBits.SendMessages)) {
+    return ix.reply({ content: '❌ No puedo enviar mensajes en este canal.', ephemeral: true });
+  }
+
+  const gid = String(ix.guildId);
+  const prev = getUtcClock(getDb, gid);
+  if (prev && (prev.channel_id !== channel.id || prev.message_id)) {
+    await deleteUtcMessage(ix.client, prev);
+  }
+
+  const embed = buildUtcClockEmbed();
+  const sent = await channel.send({ embeds: [embed] });
+  saveUtcClock(getDb, gid, channel.id, sent.id);
+
+  if (me.permissionsIn(channel).has(PermissionFlagsBits.ManageMessages)) {
+    await sent.pin().catch(() => {});
+  }
+
+  await ix.reply({
+    content: `✅ Reloj UTC activo en ${channel}. Se actualiza cada ${UTC_TICK_MS / 1000} segundos.`,
+    ephemeral: true,
+  });
+  log.info(`UTC clock activado en ${ix.guild.name} (#${channel.name})`);
+}
 
 function categoryEmbed(key) {
   const cat = CATEGORIES[key];
@@ -114,11 +237,45 @@ function categoryEmbed(key) {
 
 const commands = [
   {
-    data: new SlashCommandBuilder().setName('utc').setDescription('Muestra la hora UTC actual'),
-    async run(ix) {
-      const now = new Date();
-      const t = now.toISOString().slice(11, 19);
-      await ix.reply(`# 🕐 ${t} UTC`);
+    data: new SlashCommandBuilder()
+      .setName('utc')
+      .setDescription('Hora UTC y reloj en canal')
+      .addSubcommand((s) => s.setName('hora').setDescription('Muestra la hora UTC ahora'))
+      .addSubcommand((s) =>
+        s
+          .setName('canal')
+          .setDescription('Publica y fija un reloj UTC en vivo en este canal')
+          .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+      )
+      .addSubcommand((s) =>
+        s
+          .setName('quitar')
+          .setDescription('Quita el reloj UTC del servidor')
+          .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+      ),
+    async run(ix, ctx) {
+      const sub = ix.options.getSubcommand();
+      if (sub === 'hora') {
+        await ix.reply(`# 🕐 ${utcTimeString()} UTC`);
+        return;
+      }
+      if (sub === 'canal') {
+        await setupUtcChannel(ix, ctx);
+        return;
+      }
+      if (sub === 'quitar') {
+        const { getDb, log } = ctx;
+        const gid = String(ix.guildId);
+        const row = getUtcClock(getDb, gid);
+        if (!row) {
+          await ix.reply({ content: 'ℹ️ No hay reloj UTC configurado en este servidor.', ephemeral: true });
+          return;
+        }
+        await deleteUtcMessage(ix.client, row);
+        clearUtcClock(getDb, gid);
+        await ix.reply({ content: '✅ Reloj UTC eliminado.', ephemeral: true });
+        log.info(`UTC clock quitado en ${ix.guild.name}`);
+      }
     },
   },
   {
@@ -183,6 +340,14 @@ const commands = [
 module.exports = {
   id: 'utilidad',
   commands,
+
+  onInit(client, { getDb, log }) {
+    tickAllUtcClocks(client, getDb, log).catch((e) => log.warn(`UTC init: ${e.message}`));
+    setInterval(() => {
+      tickAllUtcClocks(client, getDb, log).catch((e) => log.warn(`UTC tick: ${e.message}`));
+    }, UTC_TICK_MS);
+    log.info(`Reloj UTC: actualización cada ${UTC_TICK_MS / 1000} s`);
+  },
 
   async handleInteraction(ix, ctx) {
     if (ix.isStringSelectMenu() && ix.customId === `${PREFIX}:help`) {

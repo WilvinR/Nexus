@@ -233,7 +233,7 @@ nav.site-nav.has-badge {
   width: clamp(120px, 22vw, 180px);
   height: clamp(120px, 22vw, 180px);
   border-radius: 50%;
-  margin-bottom: 24px;
+  margin-bottom: 0;
   object-fit: cover;
   border: 2px solid rgba(0, 229, 255, 0.35);
   box-shadow:
@@ -241,6 +241,8 @@ nav.site-nav.has-badge {
     0 0 120px rgba(0, 229, 255, 0.15),
     0 0 0 6px rgba(228, 184, 74, 0.08);
   animation: fadeUp 1s 0.2s both, logoPulse 4s ease-in-out infinite;
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes logoPulse {
@@ -249,21 +251,30 @@ nav.site-nav.has-badge {
 }
 
 .hero-deco-row {
+  position: relative;
+  width: min(720px, 100%);
+  margin: 0 auto 24px;
+  padding: 0 clamp(52px, 14vw, 100px);
   display: flex;
-  align-items: center;
   justify-content: center;
-  gap: clamp(12px, 4vw, 28px);
-  margin-bottom: 20px;
+  align-items: center;
+  min-height: clamp(120px, 22vw, 180px);
   animation: fadeUp 1s 0.15s both;
 }
 
 .hero-deco {
-  font-size: clamp(1.5rem, 5vw, 2.5rem);
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: clamp(1.75rem, 4.5vw, 2.75rem);
   line-height: 1;
   filter: drop-shadow(0 0 14px var(--accent-glow));
-  flex-shrink: 0;
   user-select: none;
+  pointer-events: none;
 }
+
+.hero-deco-l { left: clamp(0px, 2vw, 16px); }
+.hero-deco-r { right: clamp(0px, 2vw, 16px); }
 
 .albion-strip {
   display: flex;
@@ -1397,18 +1408,23 @@ footer {
   }
 
   .hero-deco-row {
-    gap: 10px;
-    margin-bottom: 14px;
+    width: 100%;
+    max-width: 100%;
+    padding: 0 clamp(44px, 13vw, 72px);
+    margin-bottom: 20px;
+    min-height: clamp(88px, 26vw, 130px);
   }
 
   .hero-deco {
-    font-size: clamp(1.35rem, 6vw, 1.75rem);
+    font-size: clamp(1.5rem, 5.5vw, 2rem);
   }
+
+  .hero-deco-l { left: 0; }
+  .hero-deco-r { right: 0; }
 
   .hero-logo {
     width: clamp(88px, 26vw, 130px);
     height: clamp(88px, 26vw, 130px);
-    margin-bottom: 16px;
   }
 
   .hero-tag {

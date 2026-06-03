@@ -182,6 +182,11 @@ function getDb() {
     CREATE TABLE IF NOT EXISTS welcome_guild_sent (
       guild_id TEXT PRIMARY KEY, sent_at INTEGER
     );
+    CREATE TABLE IF NOT EXISTS utc_clock (
+      guild_id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL,
+      message_id TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS command_usage (
       day TEXT NOT NULL, guild_id TEXT NOT NULL, command_name TEXT NOT NULL,
       count INTEGER DEFAULT 0, PRIMARY KEY (day, guild_id, command_name)
@@ -215,6 +220,7 @@ function purgeGuild(guildId) {
   d.prepare('DELETE FROM logs_config WHERE guild_id = ?').run(id);
   d.prepare('DELETE FROM kill_entities WHERE discord_guild_id = ?').run(id);
   d.prepare('DELETE FROM guild_meta WHERE guild_id = ?').run(id);
+  d.prepare('DELETE FROM utc_clock WHERE guild_id = ?').run(id);
   for (const m of modulos) if (m.onGuildRemove) m.onGuildRemove(guildId, ctx());
   if (logs.onGuildRemove) logs.onGuildRemove(guildId, ctx());
 }
