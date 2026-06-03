@@ -5,16 +5,16 @@ let currentGuildId = null;
 let moduleModals = null;
 
 const MODULE_EMOJI = {
-  registro: '📋',
+  registro: '🏰',
   kill: '⚔️',
-  battle: '📊',
-  mercado: '💰',
+  battle: '🛡️',
+  mercado: '🪙',
   logs: '📜',
-  moderacion: '🛡️',
-  eventos: '📅',
+  moderacion: '⚒️',
+  eventos: '🏹',
   musica: '🎵',
-  bal: '⚖️',
-  utilidad: '💬',
+  bal: '💰',
+  utilidad: '📩',
 };
 
 function api(path, opts = {}) {
