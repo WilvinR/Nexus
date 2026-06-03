@@ -15,6 +15,72 @@ function esc(s) {
   return d.innerHTML;
 }
 
+function fmtDay(iso) {
+  if (!iso) return '—';
+  const p = String(iso).split('-');
+  return p.length >= 3 ? `${p[2]}/${p[1]}` : iso;
+}
+
+function fmtDateTime(iso) {
+  try {
+    return new Date(iso).toLocaleString('es-ES', { dateStyle: 'short', timeStyle: 'short' });
+  } catch {
+    return iso;
+  }
+}
+
+function cmdLabel(name) {
+  const n = String(name || '');
+  const map = {
+    registrarse: '/registrarse',
+    registro_manual: '/registro_manual',
+    configurar_registro: '/configurar_registro',
+    informacion_gremio: '/informacion_gremio',
+    killboard: '/killboard',
+    precio: '/precio',
+    utc: '/utc',
+    sugerencia: '/sugerencia',
+    ayuda: '/ayuda',
+  };
+  if (map[n]) return map[n];
+  if (n.includes(':')) return `/${n.replace(':', ' ')}`;
+  return `/${n}`;
+}
+
+function statCard(label, value, hint) {
+  return `<div class="stat-card">
+    <span class="stat-card-label">${esc(label)}</span>
+    <strong class="stat-card-value">${value}</strong>
+    ${hint ? `<small class="stat-card-hint">${esc(hint)}</small>` : ''}
+  </div>`;
+}
+
+function statSection(title, desc, cardsHtml) {
+  return `<section class="stat-section">
+    <h3 class="stat-section-title">${esc(title)}</h3>
+    ${desc ? `<p class="stat-section-desc">${esc(desc)}</p>` : ''}
+    <div class="stat-grid">${cardsHtml}</div>
+  </section>`;
+}
+
+function emptyStat(msg) {
+  return `<p class="stat-empty">${esc(msg)}</p>`;
+}
+
+function renderCmdRank(list) {
+  if (!list.length) return emptyStat('Nadie ha usado comandos en los últimos 7 días.');
+  const max = Math.max(...list.map((x) => x.total), 1);
+  return `<div class="cmd-rank">${list
+    .map(
+      (c) => `<div class="cmd-rank-row">
+        <span class="cmd-rank-name">${esc(cmdLabel(c.command))}</span>
+        <div class="cmd-rank-bar"><i style="width:${Math.round((c.total / max) * 100)}%"></i></div>
+        <span class="cmd-rank-num">${c.total}×</span>
+      </div>`,
+    )
+    .join('')}</div>`;
+}
+
 function show(id) {
   document.getElementById('admin-login').classList.toggle('hidden', id !== 'login');
   document.getElementById('admin-panel').classList.toggle('hidden', id !== 'panel');
@@ -71,26 +137,62 @@ function drawLineChart(canvasId, labels, values, color = '#00d4ff') {
   const h = canvas.height;
   ctx.clearRect(0, 0, w, h);
   const max = Math.max(...values, 1);
-  const pad = 24;
-  const step = (w - pad * 2) / (labels.length - 1);
+  const min = Math.min(...values, 0);
+  const padL = 44;
+  const padR = 12;
+  const padT = 16;
+  const padB = 32;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const step = plotW / (labels.length - 1);
+
+  ctx.fillStyle = 'rgba(255,255,255,0.04)';
+  ctx.fillRect(padL, padT, plotW, plotH);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 3; i++) {
+    const y = padT + (plotH * i) / 3;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(padL + plotW, y);
+    ctx.stroke();
+    const val = Math.round(max - ((max - min) * i) / 3);
+    ctx.fillStyle = '#8899aa';
+    ctx.font = '10px Rajdhani,sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(String(val), padL - 6, y + 3);
+  }
+
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.beginPath();
   values.forEach((v, i) => {
-    const x = pad + i * step;
-    const y = h - pad - ((h - pad * 2) * v) / max;
+    const x = padL + i * step;
+    const y = padT + plotH - ((v - min) / (max - min || 1)) * plotH;
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   });
   ctx.stroke();
+
   ctx.fillStyle = color;
   values.forEach((v, i) => {
-    const x = pad + i * step;
-    const y = h - pad - ((h - pad * 2) * v) / max;
+    const x = padL + i * step;
+    const y = padT + plotH - ((v - min) / (max - min || 1)) * plotH;
     ctx.beginPath();
     ctx.arc(x, y, 3, 0, Math.PI * 2);
     ctx.fill();
   });
+
+  ctx.fillStyle = '#8899aa';
+  ctx.font = '10px Rajdhani,sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(labels[0], padL, h - 8);
+  if (labels.length > 2) {
+    const mid = Math.floor(labels.length / 2);
+    ctx.fillText(labels[mid], padL + mid * step, h - 8);
+  }
+  ctx.fillText(labels[labels.length - 1], padL + (labels.length - 1) * step, h - 8);
 }
 
 async function loadOverview() {
@@ -102,57 +204,138 @@ async function loadOverview() {
   }
   const d = await r.json();
   const s = d.stats;
-  const status = d.online ? '🟢 Online' : '🔴 Offline';
-  el.innerHTML = `
-    <div class="stat-grid">
-      <div class="stat-card"><span>Estado</span><strong>${status}</strong></div>
-      <div class="stat-card"><span>Ping</span><strong>${d.ping} ms</strong></div>
-      <div class="stat-card"><span>Servidores</span><strong>${d.guilds}</strong></div>
-      <div class="stat-card"><span>Usuarios</span><strong>${d.users}</strong></div>
-      <div class="stat-card"><span>Uptime</span><strong>${Math.floor(d.uptime / 3600)}h ${Math.floor((d.uptime % 3600) / 60)}m</strong></div>
-      <div class="stat-card"><span>RAM</span><strong>${d.memoryMb} MB</strong></div>
-      <div class="stat-card"><span>CPU load</span><strong>${d.cpuLoad?.toFixed?.(2) ?? '—'}</strong></div>
-      <div class="stat-card"><span>Versión</span><strong>${esc(d.version)}</strong></div>
-    </div>
-    <h3 class="chart-heading">Datos globales</h3>
-    <div class="stat-grid">
-      <div class="stat-card"><span>Kills registradas</span><strong>${s.kills}</strong></div>
-      <div class="stat-card"><span>Batallas</span><strong>${s.battles}</strong></div>
-      <div class="stat-card"><span>Jugadores monitoreados</span><strong>${s.playersMonitored}</strong></div>
-      <div class="stat-card"><span>Comandos ejecutados</span><strong>${s.commandsExecuted}</strong></div>
-      <div class="stat-card"><span>Sugerencias</span><strong>${s.suggestions}</strong></div>
-    </div>
-    <p class="modal-meta">Última actualización: ${esc(d.updatedAt)}</p>`;
+  const status = d.online ? '🟢 En línea' : '🔴 Desconectado';
+  const uptimeH = Math.floor(d.uptime / 3600);
+  const uptimeM = Math.floor((d.uptime % 3600) / 60);
+
+  el.innerHTML =
+    statSection(
+      'Estado del bot',
+      'Salud del proceso en Discloud. Se actualiza al abrir esta pestaña.',
+      [
+        statCard('Conexión', status, 'Si el bot está conectado a Discord'),
+        statCard('Latencia', `${d.ping} ms`, 'Tiempo de respuesta a Discord'),
+        statCard('Tiempo activo', `${uptimeH}h ${uptimeM}m`, 'Desde el último reinicio del bot'),
+        statCard('Memoria RAM', `${d.memoryMb} MB`, 'Uso de memoria del servidor'),
+        statCard('Carga CPU', d.cpuLoad?.toFixed?.(2) ?? '—', 'Carga del servidor (no es % exacto)'),
+        statCard('Versión', esc(d.version), 'Versión desplegada de Nexus'),
+      ].join(''),
+    ) +
+    statSection(
+      'Alcance en Discord',
+      'Cuántos servidores usan Nexus y cuántas personas están en esos servidores (miembros totales, no usuarios únicos).',
+      [
+        statCard('Servidores con Nexus', d.guilds, 'Servidores donde está instalado el bot'),
+        statCard('Miembros totales', d.users.toLocaleString('es-ES'), 'Suma de miembros en todos esos servidores'),
+      ].join(''),
+    ) +
+    statSection(
+      'Uso de funciones',
+      'Totales guardados en la base de datos del bot (desde que hay registro).',
+      [
+        statCard('Seguimientos killboard', s.kills, 'Gremios/jugadores en monitoreo de kills'),
+        statCard('Seguimientos de batallas', s.battles, 'Batallas que algún servidor sigue'),
+        statCard('Jugadores vinculados', s.playersMonitored, 'Registros Albion + jugadores en killboard'),
+        statCard('Comandos usados', s.commandsExecuted.toLocaleString('es-ES'), 'Veces que alguien usó un /comando'),
+        statCard('Sugerencias recibidas', s.suggestions, 'Enviadas con /sugerencia'),
+      ].join(''),
+    ) +
+    `<p class="stat-updated">Actualizado: ${fmtDateTime(d.updatedAt)}</p>`;
 }
 
 async function loadStats() {
   const el = document.getElementById('tab-stats');
   const r = await api('/api/admin/stats/charts');
   if (!r.ok) {
-    el.innerHTML = '<p class="dash-empty">Sin datos aún.</p>';
+    el.innerHTML = emptyStat('No se pudieron cargar las estadísticas.');
     return;
   }
   const { growth, commandUsage, activity } = await r.json();
-  el.innerHTML = `
-    <h3 class="chart-heading">Crecimiento de servidores</h3>
-    <canvas id="chart-guilds" class="admin-chart" width="900" height="220"></canvas>
-    <h3 class="chart-heading">Crecimiento de usuarios</h3>
-    <canvas id="chart-users" class="admin-chart" width="900" height="220"></canvas>
-    <h3 class="chart-heading">Uso de comandos (top 7 días)</h3>
-    <canvas id="chart-cmds" class="admin-chart" width="900" height="240"></canvas>
-    <h3 class="chart-heading">Actividad diaria (comandos)</h3>
-    <canvas id="chart-activity" class="admin-chart" width="900" height="220"></canvas>`;
 
-  const gLabels = growth.map((x) => x.day.slice(5));
-  drawLineChart('chart-guilds', gLabels, growth.map((x) => x.guilds));
-  drawLineChart('chart-users', gLabels, growth.map((x) => x.users), '#6ee7b7');
-  drawBarChart(
-    'chart-cmds',
-    commandUsage.map((x) => x.command),
-    commandUsage.map((x) => x.total),
+  const lastGrowth = growth.length ? growth[growth.length - 1] : null;
+  const guildTrend =
+    growth.length >= 2
+      ? lastGrowth.guilds - growth[growth.length - 2].guilds
+      : 0;
+  const userTrend =
+    growth.length >= 2 ? lastGrowth.users - growth[growth.length - 2].users : 0;
+
+  let html = `<p class="stat-section-desc stat-intro">
+    Historial de los últimos 30 días. El bot guarda un resumen cada 6 horas.
+    Si acabas de desplegar, verás pocos datos al principio — es normal.
+  </p>`;
+
+  html += statSection(
+    'Resumen reciente',
+    lastGrowth
+      ? `Último registro: ${fmtDay(lastGrowth.day)} — ${lastGrowth.guilds} servidores, ${lastGrowth.users.toLocaleString('es-ES')} miembros.`
+      : 'Aún no hay registros diarios.',
+    lastGrowth
+      ? [
+          statCard(
+            'Servidores',
+            lastGrowth.guilds,
+            guildTrend > 0 ? `+${guildTrend} vs día anterior` : guildTrend < 0 ? `${guildTrend} vs día anterior` : 'Sin cambio vs ayer',
+          ),
+          statCard(
+            'Miembros',
+            lastGrowth.users.toLocaleString('es-ES'),
+            userTrend > 0 ? `+${userTrend} vs día anterior` : userTrend < 0 ? `${userTrend} vs día anterior` : 'Sin cambio vs ayer',
+          ),
+          statCard('Comandos ese día', lastGrowth.commands, 'Slash commands usados ese día'),
+        ].join('')
+      : '',
   );
-  const aLabels = activity.map((x) => x.day.slice(5));
-  drawLineChart('chart-activity', aLabels, activity.map((x) => x.commands), '#fbbf24');
+
+  html += `<section class="stat-section">
+    <h3 class="stat-section-title">Comandos más usados (7 días)</h3>
+    <p class="stat-section-desc">Qué /comandos usa la gente con más frecuencia.</p>
+    ${renderCmdRank(commandUsage)}
+  </section>`;
+
+  if (growth.length >= 2) {
+    html += `<section class="stat-section">
+      <h3 class="stat-section-title">Servidores en el tiempo</h3>
+      <p class="stat-section-desc">Cuántos servidores tenían Nexus cada día.</p>
+      <canvas id="chart-guilds" class="admin-chart" width="900" height="200"></canvas>
+    </section>
+    <section class="stat-section">
+      <h3 class="stat-section-title">Miembros en el tiempo</h3>
+      <p class="stat-section-desc">Total de miembros en servidores con Nexus (suma, no usuarios únicos).</p>
+      <canvas id="chart-users" class="admin-chart" width="900" height="200"></canvas>
+    </section>`;
+  } else {
+    html += emptyStat('Los gráficos de crecimiento aparecerán cuando haya al menos 2 días de historial.');
+  }
+
+  if (activity.length >= 2) {
+    html += `<section class="stat-section">
+      <h3 class="stat-section-title">Actividad diaria</h3>
+      <p class="stat-section-desc">Cuántos comandos se ejecutaron cada día en todos los servidores.</p>
+      <canvas id="chart-activity" class="admin-chart" width="900" height="200"></canvas>
+    </section>`;
+  } else if (activity.length === 1) {
+    html += `<section class="stat-section">
+      <h3 class="stat-section-title">Actividad hoy</h3>
+      <p class="stat-section-desc">${activity[0].commands} comando(s) registrado(s) el ${fmtDay(activity[0].day)}.</p>
+    </section>`;
+  }
+
+  el.innerHTML = html;
+
+  if (growth.length >= 2) {
+    const gLabels = growth.map((x) => fmtDay(x.day));
+    drawLineChart('chart-guilds', gLabels, growth.map((x) => x.guilds));
+    drawLineChart('chart-users', gLabels, growth.map((x) => x.users), '#6ee7b7');
+  }
+  if (activity.length >= 2) {
+    drawLineChart(
+      'chart-activity',
+      activity.map((x) => fmtDay(x.day)),
+      activity.map((x) => x.commands),
+      '#fbbf24',
+    );
+  }
 }
 
 async function loadAnnounce() {
