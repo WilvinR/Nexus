@@ -633,20 +633,6 @@ function initModuleModals(deps) {
             .join('')
         : '<tr><td colspan="4" class="modal-meta">Nadie con strikes o multas activas.</td></tr>';
 
-    const logRows =
-      (data.log || []).length > 0
-        ? (data.log || [])
-            .slice(0, 15)
-            .map((e) => {
-              const when = new Date(e.createdAt).toLocaleString('es');
-              const act = e.action === 'apply' ? '➕' : '➖';
-              const tipo = e.tipo === 'strike' ? 'Strike' : 'Multa';
-              const reason = e.reason ? ` — ${escapeHtml(e.reason)}` : '';
-              return `<li class="sanc-log-item">${act} <strong>${escapeHtml(e.username)}</strong>: ${tipo} ${e.amount}${reason} <span class="modal-meta">(${when})</span></li>`;
-            })
-            .join('')
-        : '<li class="modal-meta">Sin movimientos recientes.</li>';
-
     openModal(
       'Sanciones',
       `<div class="modal-section">
@@ -676,17 +662,12 @@ function initModuleModals(deps) {
       </div>
       <div class="modal-section">
         <h3>Miembros sancionados</h3>
-        <label class="form-label">Razón para ajustes manuales<input class="form-input" id="sanc-edit-reason" placeholder="Usada al editar strikes/multas en la tabla"></label>
         <div class="sanciones-table-wrap">
           <table class="sanciones-table">
             <thead><tr><th>Miembro</th><th>Strikes</th><th>Multas</th><th></th></tr></thead>
             <tbody id="sanc-rows">${rows}</tbody>
           </table>
         </div>
-      </div>
-      <div class="modal-section">
-        <h3>Actividad reciente</h3>
-        <ul class="sanc-log-list">${logRows}</ul>
       </div>`,
     );
 
@@ -730,14 +711,13 @@ function initModuleModals(deps) {
       const tr = btn.closest('tr[data-uid]');
       if (!tr) return;
       const uid = tr.dataset.uid;
-      const reason = document.getElementById('sanc-edit-reason')?.value.trim() || 'Ajuste desde el dashboard';
       if (btn.dataset.act === 'save-user') {
         const strikes = Number(tr.querySelector('.sanc-strikes').value);
         const multas = Number(tr.querySelector('.sanc-multas').value);
         const res = await api(`/api/guilds/${modalGuildId}/sanciones/users/${uid}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ strikes, multas, reason }),
+          body: JSON.stringify({ strikes, multas, reason: 'Ajuste desde el dashboard' }),
         });
         if (res.ok) {
           alert('Registro actualizado y notificado en Discord.');
