@@ -1,10 +1,11 @@
 /* Configuración por módulo (modales) — requiere api() y escapeHtml del dashboard */
-const CONFIG_MODULES = new Set(['registro', 'kill', 'battle', 'logs', 'utilidad', 'sanciones']);
+const CONFIG_MODULES = new Set(['registro', 'kill', 'battle', 'logs', 'utilidad', 'sanciones', 'eventos']);
 
 let modalGuildId = null;
   let channelsCache = [];
   let rolesCache = [];
   let categoriesCache = [];
+  let voiceChannelsCache = [];
 
 function initModuleModals(deps) {
   const { api, escapeHtml, getGuildId } = deps;
@@ -107,6 +108,7 @@ function initModuleModals(deps) {
     channelsCache = [];
     rolesCache = [];
     categoriesCache = [];
+    voiceChannelsCache = [];
     if (!modalGuildId) return;
     if (moduleId === 'registro') return openRegistro();
     if (moduleId === 'kill') return openKill();
@@ -114,6 +116,7 @@ function initModuleModals(deps) {
     if (moduleId === 'logs') return openLogs();
     if (moduleId === 'utilidad') return openUtilidad();
     if (moduleId === 'sanciones') return openSanciones();
+    if (moduleId === 'eventos') return openEventos();
   };
 
   async function openRegistro() {
@@ -503,8 +506,43 @@ function initModuleModals(deps) {
     });
   }
 
+  async function ensureVoiceChannels() {
+    const gid = getGuildId();
+    if (!gid) return [];
+    if (voiceChannelsCache.length) return voiceChannelsCache;
+    const r = await api(`/api/guilds/${gid}/voice-channels`);
+    if (r.ok) {
+      const d = await r.json();
+      voiceChannelsCache = d.channels || [];
+    }
+    return voiceChannelsCache;
+  }
+
+  function voiceChannelSelect(id, value, label = 'Canal de voz') {
+    const opts = voiceChannelsCache
+      .map((c) => `<option value="${escapeHtml(c.id)}" ${c.id === value ? 'selected' : ''}>🔊 ${escapeHtml(c.name)}</option>`)
+      .join('');
+    return `<label class="form-label">${label}<select class="form-input" id="${id}"><option value="">— Sin canal de voz —</option>${opts}</select></label>`;
+  }
+
+  async function searchMembers(query) {
+    const q = encodeURIComponent(query || '');
+    const r = await api(`/api/guilds/${modalGuildId}/members?q=${q}`);
+    if (!r.ok) return [];
+    const d = await r.json();
+    return d.members || [];
+  }
+
+  function memberSelect(id, members, label = 'Miembro') {
+    const opts = members
+      .map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.displayName || m.username)}</option>`)
+      .join('');
+    return `<label class="form-label">${label}<select class="form-input" id="${id}"><option value="">— Elegir miembro —</option>${opts}</select></label>`;
+  }
+
   async function openSanciones() {
     await ensureChannels();
+    const members = await searchMembers('');
     const r = await api(`/api/guilds/${modalGuildId}/sanciones`);
     if (!r.ok) return alert('No se pudo cargar sanciones');
     const data = await r.json();
@@ -551,7 +589,27 @@ function initModuleModals(deps) {
         </div>
       </div>
       <div class="modal-section">
+        <h3>Nueva sanción</h3>
+        <div class="sanc-new-form">
+          <label class="form-label">Buscar miembro<input class="form-input" id="sanc-user-q" placeholder="Nombre o ID de Discord"></label>
+          <button type="button" class="btn btn-sm" data-act="search-user">Buscar</button>
+          <div id="sanc-user-slot">${memberSelect('sanc-user', members)}</div>
+          <label class="form-label">Tipo
+            <select class="form-input" id="sanc-tipo">
+              <option value="strike">Strike</option>
+              <option value="multa">Multa</option>
+            </select>
+          </label>
+          <label class="form-label">Cantidad<input type="number" class="form-input" id="sanc-cantidad" min="1" value="1"></label>
+          <label class="form-label">Razón<input class="form-input" id="sanc-razon" placeholder="Motivo de la infracción"></label>
+          <div class="form-actions">
+            <button type="button" class="btn btn-accent" data-act="apply-sanc">Aplicar sanción</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-section">
         <h3>Miembros sancionados</h3>
+        <label class="form-label">Razón para ajustes manuales<input class="form-input" id="sanc-edit-reason" placeholder="Usada al editar strikes/multas en la tabla"></label>
         <div class="sanciones-table-wrap">
           <table class="sanciones-table">
             <thead><tr><th>Miembro</th><th>Strikes</th><th>Multas</th><th></th></tr></thead>
@@ -577,33 +635,135 @@ function initModuleModals(deps) {
       else alert((await res.json().catch(() => ({}))).error || 'Error');
     });
 
+    body.querySelector('[data-act="search-user"]').addEventListener('click', async () => {
+      const q = document.getElementById('sanc-user-q').value.trim();
+      const found = await searchMembers(q);
+      document.getElementById('sanc-user-slot').innerHTML = memberSelect('sanc-user', found);
+    });
+
+    body.querySelector('[data-act="apply-sanc"]').addEventListener('click', async () => {
+      const userId = document.getElementById('sanc-user')?.value;
+      const tipo = document.getElementById('sanc-tipo').value;
+      const cantidad = Number(document.getElementById('sanc-cantidad').value);
+      const razon = document.getElementById('sanc-razon').value.trim();
+      if (!userId) return alert('Elige un miembro.');
+      if (!razon) return alert('Escribe la razón.');
+      if (!Number.isFinite(cantidad) || cantidad <= 0) return alert('Cantidad inválida.');
+      const res = await api(`/api/guilds/${modalGuildId}/sanciones/aplicar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, tipo, cantidad, razon }),
+      });
+      if (res.ok) {
+        alert('Sanción aplicada y publicada en Discord.');
+        openSanciones();
+      } else alert((await res.json().catch(() => ({}))).error || 'Error');
+    });
+
     body.querySelector('#sanc-rows').addEventListener('click', async (ev) => {
       const btn = ev.target.closest('button');
       if (!btn) return;
       const tr = btn.closest('tr[data-uid]');
       if (!tr) return;
       const uid = tr.dataset.uid;
+      const reason = document.getElementById('sanc-edit-reason')?.value.trim() || 'Ajuste desde el dashboard';
       if (btn.dataset.act === 'save-user') {
         const strikes = Number(tr.querySelector('.sanc-strikes').value);
         const multas = Number(tr.querySelector('.sanc-multas').value);
         const res = await api(`/api/guilds/${modalGuildId}/sanciones/users/${uid}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ strikes, multas }),
+          body: JSON.stringify({ strikes, multas, reason }),
         });
-        if (res.ok) alert('Registro actualizado.');
-        else alert((await res.json().catch(() => ({}))).error || 'Error');
+        if (res.ok) {
+          alert('Registro actualizado y notificado en Discord.');
+          openSanciones();
+        } else alert((await res.json().catch(() => ({}))).error || 'Error');
       }
       if (btn.dataset.act === 'reset-user') {
-        if (!confirm('¿Limpiar strikes y multas de este miembro?')) return;
+        if (!confirm('¿Limpiar strikes y multas de este miembro? Se publicará en Discord.')) return;
         const res = await api(`/api/guilds/${modalGuildId}/sanciones/users/${uid}`, {
           method: 'DELETE',
         });
         if (res.ok) {
-          tr.remove();
           alert('Registro limpiado.');
+          openSanciones();
         } else alert((await res.json().catch(() => ({}))).error || 'Error');
       }
+    });
+  }
+
+  async function openEventos() {
+    await ensureChannels();
+    await ensureVoiceChannels();
+    const r = await api(`/api/guilds/${modalGuildId}/eventos`);
+    const data = r.ok ? await r.json() : { events: [] };
+
+    const eventList =
+      (data.events || []).length > 0
+        ? (data.events || [])
+            .map(
+              (e) =>
+                `<li class="sanc-log-item"><strong>${escapeHtml(e.name)}</strong> — ${escapeHtml(e.time || '')} UTC · ${escapeHtml(e.location || '')}</li>`,
+            )
+            .join('')
+        : '<li class="modal-meta">No hay eventos activos.</li>';
+
+    openModal(
+      'Eventos',
+      `<div class="modal-section">
+        <p class="modal-meta">Crea un evento igual que con <code>/crear_evento</code>. La hora es en UTC (ej. 20:00).</p>
+        ${channelSelect('evt-ch', '', 'Canal de publicación')}
+        <label class="form-label">Nombre<input class="form-input" id="evt-name" required></label>
+        <label class="form-label">Descripción<textarea class="form-input" id="evt-desc" rows="2"></textarea></label>
+        <label class="form-label">Hora UTC<input class="form-input" id="evt-time" placeholder="20:00" required></label>
+        <label class="form-label">Lugar<input class="form-input" id="evt-loc" placeholder="Black Zone..." required></label>
+        ${voiceChannelSelect('evt-voice', '', 'Canal de voz (opcional)')}
+        <label class="form-label">Color del embed<input class="form-input" id="evt-color" type="color" value="#5865f2"></label>
+        <label class="form-label">Roles del evento
+          <textarea class="form-input" id="evt-roles" rows="3" placeholder="Tanque:🛡️:4, Healer:🌿:3, DPS:⚔️:6"></textarea>
+        </label>
+        <p class="modal-meta">Formato roles: <code>Nombre:emoji:cantidad</code> separados por coma. Se añade Ausente automáticamente.</p>
+        <div class="form-actions">
+          <button type="button" class="btn btn-accent" data-act="create-evt">Publicar evento</button>
+        </div>
+      </div>
+      <div class="modal-section">
+        <h3>Eventos activos</h3>
+        <ul class="sanc-log-list">${eventList}</ul>
+      </div>`,
+    );
+
+    body.querySelector('[data-act="create-evt"]').addEventListener('click', async () => {
+      const channelId = document.getElementById('evt-ch').value;
+      const name = document.getElementById('evt-name').value.trim();
+      const description = document.getElementById('evt-desc').value.trim();
+      const time = document.getElementById('evt-time').value.trim();
+      const location = document.getElementById('evt-loc').value.trim();
+      const voiceChannelId = document.getElementById('evt-voice').value || null;
+      const embedColor = document.getElementById('evt-color').value;
+      const rolesText = document.getElementById('evt-roles').value.trim();
+      if (!channelId) return alert('Elige el canal donde se publicará.');
+      if (!name || !time || !location) return alert('Nombre, hora y lugar son obligatorios.');
+      if (!rolesText) return alert('Define al menos un rol (ej. Tanque:🛡️:4).');
+      const res = await api(`/api/guilds/${modalGuildId}/eventos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          channelId,
+          name,
+          description,
+          time,
+          location,
+          voiceChannelId,
+          embedColor,
+          rolesText,
+        }),
+      });
+      if (res.ok) {
+        alert('Evento publicado en Discord.');
+        openEventos();
+      } else alert((await res.json().catch(() => ({}))).error || 'Error');
     });
   }
 

@@ -209,7 +209,7 @@ function startTimer(client, getDb, messageId) {
   timers.set(id, iv);
 }
 
-async function publishEvent(ix, getDb, client, ev, channel) {
+async function publishEvent(client, getDb, ev, channel) {
   const msg = await channel.send({
     embeds: [buildEmbed(ev)],
     components: [roleSelectRow('pending', ev.roles)],
@@ -221,6 +221,41 @@ async function publishEvent(ix, getDb, client, ev, channel) {
   await channel.send({ content: '@everyone Nuevo evento creado!' });
   startTimer(client, getDb, msg.id);
   return msg;
+}
+
+function buildEventFromPayload(body, guildId, creator) {
+  const time = String(body.time || '').trim();
+  if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('Hora inválida. Usa HH:MM (UTC).');
+  let embedColor = body.embedColor ?? body.embed_color ?? null;
+  if (typeof embedColor === 'string' && embedColor.startsWith('#')) {
+    embedColor = parseInt(embedColor.slice(1), 16);
+  } else if (typeof embedColor === 'string' && embedColor) {
+    embedColor = parseInt(embedColor, 16);
+  }
+  return {
+    name: String(body.name || '').trim(),
+    description: String(body.description || body.desc || '').trim(),
+    time,
+    location: String(body.location || '').trim(),
+    guild_id: gid(guildId),
+    voice_channel_id: body.voiceChannelId || body.voice_channel_id || null,
+    roles: parseRoles(String(body.rolesText || body.roles || '')),
+    embed_color: embedColor || 0x5865f2,
+    creator: creator || 'Dashboard',
+    event_timestamp: parseTimeUtc(time),
+    expired: false,
+  };
+}
+
+async function createEventFromDashboard(client, getDb, guild, channelId, body, creator) {
+  const name = String(body.name || '').trim();
+  const location = String(body.location || '').trim();
+  if (!name) throw new Error('Nombre requerido');
+  if (!location) throw new Error('Lugar requerido');
+  const channel = guild.channels.cache.get(String(channelId));
+  if (!channel?.isTextBased()) throw new Error('Canal de publicación no válido');
+  const ev = buildEventFromPayload(body, guild.id, creator);
+  return publishEvent(client, getDb, ev, channel);
 }
 
 async function askRolesModal(ix) {
@@ -315,6 +350,12 @@ const commands = [
 module.exports = {
   id: 'eventos',
   commands,
+  parseRoles,
+  parseTimeUtc,
+  buildEmbed,
+  listGuildEvents,
+  publishEvent,
+  createEventFromDashboard,
 
   onGuildRemove(guildId, { getDb }) {
     const id = gid(guildId);
@@ -380,7 +421,7 @@ module.exports = {
       pending.delete(`${ix.guildId}:${ix.user.id}`);
       await ix.deferReply({ ephemeral: true });
       try {
-        const msg = await publishEvent(ix, getDb, ix.client, ev, ix.channel);
+        const msg = await publishEvent(ix.client, getDb, ev, ix.channel);
         const row = new ActionRowBuilder().addComponents(
           new ButtonBuilder().setCustomId(`${PREFIX}:tpl:save:${msg.id}`).setLabel('Guardar plantilla').setStyle(ButtonStyle.Success),
         );

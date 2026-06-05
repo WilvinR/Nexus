@@ -927,8 +927,8 @@ footer {
 }
 
 .btn-sm {
-  padding: 8px 16px;
-  font-size: 0.85rem;
+  padding: 6px 12px;
+  font-size: 0.82rem;
   border-radius: var(--radius-pill);
 }
 .btn-danger { border-color: #e74c3c; color: #e74c3c; }
@@ -1626,6 +1626,34 @@ footer {
     max-height: 92vh;
     padding: 18px 16px;
     border-radius: var(--radius-lg);
+    overflow-y: auto;
+  }
+
+  .modal .form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .modal .form-actions .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .sanciones-table td:last-child {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 120px;
+  }
+
+  .sanciones-table .btn-sm {
+    flex: 1 1 auto;
+    min-width: 72px;
+  }
+
+  .sanc-new-form .form-actions .btn,
+  .sanc-new-form [data-act='search-user'] {
+    width: 100%;
   }
 
   .modal-wide {
@@ -1715,8 +1743,7 @@ footer {
   line-height: 1.4;
 }
 
-.btn-sm {
-  padding: 4px 10px;
-  font-size: 0.8rem;
-  margin-right: 4px;
+.sanc-new-form {
+  display: grid;
+  gap: 10px;
 }

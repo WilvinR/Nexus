@@ -5,11 +5,16 @@ const {
   getConfig: getSancionesConfig,
   setChannel: setSancionesChannel,
   getRecord: getSancionRecord,
-  updateRecord: updateSancionRecord,
   listRecords: listSancionRecords,
   listLog: listSancionLog,
+  applyInfraccion,
+  removeInfraccion,
+  getNotifyChannel,
+  syncRecordChanges,
+  clearRecordWithNotify,
   MAX_STRIKES,
 } = require('./sanciones');
+const { listGuildEvents, createEventFromDashboard } = require('./eventos');
 
 function gid(id) {
   return String(id);
@@ -22,6 +27,13 @@ function discordGuild(client, guildId) {
 function listTextChannels(guild) {
   return [...guild.channels.cache.values()]
     .filter((c) => c.type === ChannelType.GuildText)
+    .map((c) => ({ id: c.id, name: c.name, category: c.parent?.name || null }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function listVoiceChannels(guild) {
+  return [...guild.channels.cache.values()]
+    .filter((c) => c.type === ChannelType.GuildVoice)
     .map((c) => ({ id: c.id, name: c.name, category: c.parent?.name || null }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -484,6 +496,35 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     res.json({ ok: true, channelId, paused: Boolean(paused) });
   });
 
+  app.get('/api/guilds/:guildId/voice-channels', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    res.json({ ok: true, channels: listVoiceChannels(ctx.guild) });
+  });
+
+  app.get('/api/guilds/:guildId/members', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const q = String(req.query.q || '').trim().toLowerCase();
+    try {
+      await ctx.guild.members.fetch({ query: q || undefined, limit: 25 }).catch(() => {});
+    } catch {
+      /* cache parcial */
+    }
+    let members = [...ctx.guild.members.cache.values()]
+      .filter((m) => !m.user.bot)
+      .map((m) => ({ id: m.id, username: m.user.tag, displayName: m.displayName }));
+    if (q) {
+      members = members.filter(
+        (m) =>
+          m.username.toLowerCase().includes(q) ||
+          m.displayName.toLowerCase().includes(q) ||
+          m.id.includes(q),
+      );
+    }
+    res.json({ ok: true, members: members.slice(0, 25) });
+  });
+
   app.get('/api/guilds/:guildId/categories', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
@@ -575,23 +616,183 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     const userId = gid(req.params.userId);
     const strikes = Number(req.body?.strikes);
     const multas = Number(req.body?.multas);
+    const reason = String(req.body?.reason || req.body?.razon || 'Ajuste desde el dashboard').trim();
     if (!Number.isFinite(strikes) || !Number.isFinite(multas)) {
       return res.status(400).json({ error: 'Strikes y multas deben ser números' });
     }
     if (strikes < 0 || strikes > MAX_STRIKES || multas < 0) {
       return res.status(400).json({ error: `Valores inválidos (strikes 0-${MAX_STRIKES})` });
     }
-    getSancionRecord(getDb, userId, ctx.guildId);
-    updateSancionRecord(getDb, userId, ctx.guildId, strikes, multas);
-    res.json({ ok: true, userId, strikes, multas });
+
+    const channel = getNotifyChannel(ctx.guild, getDb);
+    if (!channel) {
+      return res.status(400).json({ error: 'Configura el canal de infracciones primero' });
+    }
+
+    const member = await ctx.guild.members.fetch(userId).catch(() => null);
+    if (!member) return res.status(400).json({ error: 'Miembro no encontrado' });
+
+    const oldRecord = getSancionRecord(getDb, userId, ctx.guildId);
+    if (oldRecord.strikes === strikes && oldRecord.multas === multas) {
+      return res.json({ ok: true, userId, strikes, multas, unchanged: true });
+    }
+
+    try {
+      await syncRecordChanges({
+        getDb,
+        guild: ctx.guild,
+        channel,
+        member,
+        oldRecord,
+        newStrikes: strikes,
+        newMultas: multas,
+        moderatorId: req.session.user_id,
+        reason,
+      });
+      const updated = getSancionRecord(getDb, userId, ctx.guildId);
+      res.json({ ok: true, userId, strikes: updated.strikes, multas: updated.multas });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo actualizar' });
+    }
+  });
+
+  app.post('/api/guilds/:guildId/sanciones/aplicar', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const userId = gid(req.body?.userId || '');
+    const tipo = req.body?.tipo === 'multa' ? 'multa' : 'strike';
+    const cantidad = Number(req.body?.cantidad);
+    const razon = String(req.body?.razon || req.body?.reason || '').trim();
+    if (!userId) return res.status(400).json({ error: 'Usuario requerido' });
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      return res.status(400).json({ error: 'Cantidad inválida' });
+    }
+    if (!razon) return res.status(400).json({ error: 'Razón requerida' });
+
+    const channel = getNotifyChannel(ctx.guild, getDb);
+    if (!channel) {
+      return res.status(400).json({ error: 'Configura el canal de infracciones primero' });
+    }
+
+    const member = await ctx.guild.members.fetch(userId).catch(() => null);
+    if (!member) return res.status(400).json({ error: 'Miembro no encontrado' });
+
+    try {
+      const result = await applyInfraccion({
+        getDb,
+        guild: ctx.guild,
+        channel,
+        usuario: member,
+        tipo,
+        cantidad,
+        razon,
+        moderatorId: req.session.user_id,
+      });
+      res.json({ ok: true, userId, ...result });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo aplicar' });
+    }
+  });
+
+  app.post('/api/guilds/:guildId/sanciones/quitar', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const userId = gid(req.body?.userId || '');
+    const tipo = req.body?.tipo === 'multa' ? 'multa' : 'strike';
+    const cantidad = Number(req.body?.cantidad);
+    if (!userId) return res.status(400).json({ error: 'Usuario requerido' });
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      return res.status(400).json({ error: 'Cantidad inválida' });
+    }
+
+    const channel = getNotifyChannel(ctx.guild, getDb);
+    if (!channel) {
+      return res.status(400).json({ error: 'Configura el canal de infracciones primero' });
+    }
+
+    const member = await ctx.guild.members.fetch(userId).catch(() => null);
+    if (!member) return res.status(400).json({ error: 'Miembro no encontrado' });
+
+    try {
+      const result = await removeInfraccion({
+        getDb,
+        guild: ctx.guild,
+        channel,
+        usuario: member,
+        tipo,
+        cantidad,
+        moderatorId: req.session.user_id,
+      });
+      res.json({ ok: true, userId, ...result });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo quitar' });
+    }
   });
 
   app.delete('/api/guilds/:guildId/sanciones/users/:userId', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
     const userId = gid(req.params.userId);
-    updateSancionRecord(getDb, userId, ctx.guildId, 0, 0);
-    res.json({ ok: true });
+    const channel = getNotifyChannel(ctx.guild, getDb);
+    if (!channel) {
+      return res.status(400).json({ error: 'Configura el canal de infracciones primero' });
+    }
+    const member = await ctx.guild.members.fetch(userId).catch(() => null);
+    if (!member) return res.status(400).json({ error: 'Miembro no encontrado' });
+    try {
+      await clearRecordWithNotify({
+        getDb,
+        guild: ctx.guild,
+        channel,
+        member,
+        moderatorId: req.session.user_id,
+      });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo limpiar' });
+    }
+  });
+
+  app.get('/api/guilds/:guildId/eventos', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const events = listGuildEvents(ctx.guildId).map((e) => ({
+      messageId: e.messageId,
+      name: e.name,
+      time: e.ev.time,
+      location: e.ev.location,
+      channelId: e.ev.channel_id,
+      voiceChannelId: e.ev.voice_channel_id,
+    }));
+    res.json({ ok: true, events });
+  });
+
+  app.post('/api/guilds/:guildId/eventos', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const channelId = String(req.body?.channelId || '').trim();
+    if (!channelId) return res.status(400).json({ error: 'Canal de publicación requerido' });
+    const ch = ctx.guild.channels.cache.get(channelId);
+    if (!ch?.isTextBased()) return res.status(400).json({ error: 'Canal no válido' });
+    if (req.body?.voiceChannelId) {
+      const vc = ctx.guild.channels.cache.get(String(req.body.voiceChannelId));
+      if (!vc || vc.type !== ChannelType.GuildVoice) {
+        return res.status(400).json({ error: 'Canal de voz no válido' });
+      }
+    }
+    try {
+      const msg = await createEventFromDashboard(
+        client,
+        getDb,
+        ctx.guild,
+        channelId,
+        req.body,
+        req.session.username || 'Dashboard',
+      );
+      res.json({ ok: true, messageId: msg.id, channelId: msg.channelId });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo crear el evento' });
+    }
   });
 }
 

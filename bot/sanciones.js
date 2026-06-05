@@ -208,6 +208,72 @@ async function applyInfraccion({ getDb, guild, channel, usuario, tipo, cantidad,
   return { strikes: nuevoStrikes, multas: nuevoMultas };
 }
 
+function getNotifyChannel(guild, getDb) {
+  const cfg = getConfig(getDb, guild.id);
+  if (!cfg.channelId) return null;
+  const ch = guild.channels.cache.get(cfg.channelId);
+  return ch?.isTextBased() ? ch : null;
+}
+
+async function syncRecordChanges({
+  getDb,
+  guild,
+  channel,
+  member,
+  oldRecord,
+  newStrikes,
+  newMultas,
+  moderatorId,
+  reason,
+}) {
+  const razon = reason || 'Ajuste desde el dashboard';
+  const base = { getDb, guild, channel, usuario: member, moderatorId };
+
+  if (newStrikes > oldRecord.strikes) {
+    await applyInfraccion({
+      ...base,
+      tipo: 'strike',
+      cantidad: newStrikes - oldRecord.strikes,
+      razon,
+    });
+  } else if (newStrikes < oldRecord.strikes) {
+    await removeInfraccion({
+      ...base,
+      tipo: 'strike',
+      cantidad: oldRecord.strikes - newStrikes,
+    });
+  }
+
+  const mid = getRecord(getDb, member.id, guild.id);
+
+  if (newMultas > mid.multas) {
+    await applyInfraccion({
+      ...base,
+      tipo: 'multa',
+      cantidad: newMultas - mid.multas,
+      razon,
+    });
+  } else if (newMultas < mid.multas) {
+    await removeInfraccion({
+      ...base,
+      tipo: 'multa',
+      cantidad: mid.multas - newMultas,
+    });
+  }
+}
+
+async function clearRecordWithNotify({ getDb, guild, channel, member, moderatorId }) {
+  const record = getRecord(getDb, member.id, guild.id);
+  const base = { getDb, guild, channel, usuario: member, moderatorId };
+  if (record.strikes > 0) {
+    await removeInfraccion({ ...base, tipo: 'strike', cantidad: record.strikes });
+  }
+  const mid = getRecord(getDb, member.id, guild.id);
+  if (mid.multas > 0) {
+    await removeInfraccion({ ...base, tipo: 'multa', cantidad: mid.multas });
+  }
+}
+
 async function removeInfraccion({ getDb, guild, channel, usuario, tipo, cantidad, moderatorId }) {
   const record = getRecord(getDb, usuario.id, guild.id);
   let removidos = 0;
@@ -418,6 +484,9 @@ module.exports = {
   listLog,
   applyInfraccion,
   removeInfraccion,
+  getNotifyChannel,
+  syncRecordChanges,
+  clearRecordWithNotify,
 
   onGuildRemove(guildId, { getDb }) {
     const id = gid(guildId);

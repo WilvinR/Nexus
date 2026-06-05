@@ -47,19 +47,20 @@ const CATEGORIES = {
   },
   mercado: {
     label: 'Mercado (Américas)',
-    emoji: '💰',
-    commands: [
-      { name: '/precio', desc: 'Precio de venta de un ítem en el mercado del servidor Américas (West).' },
-    ],
-  },
-  balance: {
-    label: 'Balance',
     emoji: '🪙',
     commands: [
-      { name: '/balance', desc: 'Consulta tu plata virtual acumulada.' },
-      { name: '/cargar_balance', desc: 'Carga plata a usuarios (Mod).' },
-      { name: '/auditoria_bal', desc: 'Auditoría de balances, pagos y cargas (Admin).' },
-      { name: '/pagar', desc: 'Registra un pago y descuenta plata del balance (Mod).' },
+      {
+        name: '/precio',
+        desc: 'Precio de venta en el mercado Américas. Opcional: tier (4–8) y encantamiento (0–4).',
+      },
+    ],
+  },
+  logs: {
+    label: 'Logs',
+    emoji: '📜',
+    commands: [
+      { name: '/logs', desc: 'Configura el canal de logs del servidor (Mod).' },
+      { name: '/pausar_logs', desc: 'Pausa o reanuda los logs (Mod).' },
     ],
   },
   moderacion: {
@@ -78,10 +79,11 @@ const CATEGORIES = {
     label: 'Eventos',
     emoji: '📅',
     commands: [
-      { name: '/crear_evento', desc: 'Crea un evento con roles e inscripción.' },
-      { name: '/editar_evento', desc: 'Edita un evento activo.' },
-      { name: '/eliminar_evento', desc: 'Elimina un evento.' },
-      { name: '/plantillas', desc: 'Carga o elimina plantillas de eventos.' },
+      { name: '/crear_evento', desc: 'Crea un evento con roles e inscripción (Mod).' },
+      { name: '/editar_evento', desc: 'Edita un evento activo (Mod).' },
+      { name: '/eliminar_evento', desc: 'Elimina un evento (Mod).' },
+      { name: '/plantillas', desc: 'Carga o elimina plantillas de eventos (Mod).' },
+      { name: 'Dashboard web', desc: 'También puedes crear eventos desde el panel → Eventos → Configurar.' },
     ],
   },
   sanciones: {
@@ -93,19 +95,31 @@ const CATEGORIES = {
       { name: '/mis_infracciones', desc: 'Consulta tus strikes y multas.' },
       { name: '/infracciones', desc: 'Consulta las infracciones de un miembro (Mod).' },
       { name: '/config_canal', desc: 'Canal donde se publican las infracciones (Mod).' },
+      { name: 'Dashboard web', desc: 'Gestiona sanciones y canal desde el panel → Sanciones → Configurar.' },
+    ],
+  },
+  balance: {
+    label: 'Balance',
+    emoji: '💰',
+    commands: [
+      { name: '/balance', desc: 'Consulta tu plata virtual acumulada.' },
+      { name: '/cargar_balance', desc: 'Carga plata a usuarios (Mod).' },
+      { name: '/auditoria_bal', desc: 'Auditoría de balances, pagos y cargas (Admin).' },
+      { name: '/pagar', desc: 'Registra un pago y descuenta plata del balance (Mod).' },
     ],
   },
   utilidad: {
-    label: 'Utilidades y Logs',
+    label: 'Utilidad',
     emoji: '🔧',
     commands: [
       { name: '/utc hora', desc: 'Muestra la hora UTC actual.' },
-      { name: '/utc canal', desc: 'Crea un canal de voz con la hora UTC en el nombre (Mod).' },
+      {
+        name: '/utc canal',
+        desc: 'Crea un canal de voz con la hora UTC en el nombre (Mod). Se actualiza cada 10 min.',
+      },
       { name: '/utc quitar', desc: 'Elimina el canal reloj UTC del servidor (Mod).' },
-      { name: '/sugerencia', desc: 'Envía una sugerencia al administrador del bot.' },
+      { name: '/sugerencia', desc: 'Envía una sugerencia al desarrollador del bot.' },
       { name: '/ayuda', desc: 'Menú de comandos de Nexus.' },
-      { name: '/logs', desc: 'Configura el canal de logs del servidor.' },
-      { name: '/pausar_logs', desc: 'Pausa o reanuda los logs.' },
     ],
   },
 };
@@ -204,7 +218,7 @@ const commands = [
         .setTitle('📚 Ayuda — Nexus Bot')
         .setDescription(
           'Bot de Albion Online para servidores **Américas (LATAM)**.\n' +
-            'Selecciona una categoría para ver comandos y descripciones.',
+            'Selecciona una categoría abajo. Los admins también pueden usar el **Dashboard** web para configurar módulos.',
         )
         .setColor(Colors.Blurple);
       await ix.reply({
