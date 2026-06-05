@@ -533,16 +533,84 @@ function initModuleModals(deps) {
     return d.members || [];
   }
 
-  function memberSelect(id, members, label = 'Miembro') {
-    const opts = members
-      .map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.displayName || m.username)}</option>`)
-      .join('');
-    return `<label class="form-label">${label}<select class="form-input" id="${id}"><option value="">— Elegir miembro —</option>${opts}</select></label>`;
+  function memberAutocompleteHtml() {
+    return `<div class="member-autocomplete">
+      <label class="form-label">Miembro
+        <input class="form-input" id="sanc-user-q" type="text" autocomplete="off" spellcheck="false" placeholder="Escribe nombre o apodo del servidor…">
+        <input type="hidden" id="sanc-user-id">
+      </label>
+      <ul class="member-suggestions hidden" id="sanc-user-suggestions" role="listbox"></ul>
+      <p class="modal-meta member-picked" id="sanc-user-picked"></p>
+    </div>`;
+  }
+
+  function bindMemberAutocomplete() {
+    const input = document.getElementById('sanc-user-q');
+    const list = document.getElementById('sanc-user-suggestions');
+    const hiddenId = document.getElementById('sanc-user-id');
+    const picked = document.getElementById('sanc-user-picked');
+    if (!input || !list) return;
+
+    let timer = null;
+
+    async function renderSuggestions(q) {
+      const found = await searchMembers(q);
+      if (!found.length) {
+        list.innerHTML = '<li class="member-suggestion empty">Sin coincidencias en el servidor</li>';
+      } else {
+        list.innerHTML = found
+          .map(
+            (m) => {
+              const label = m.displayName || m.globalName || m.username;
+              return `<li class="member-suggestion" role="option" data-id="${escapeHtml(m.id)}" data-label="${escapeHtml(label)}">
+                <span class="member-suggestion-name">${escapeHtml(label)}</span>
+                <span class="member-suggestion-meta">${escapeHtml(m.username)}</span>
+              </li>`;
+            },
+          )
+          .join('');
+      }
+      list.classList.remove('hidden');
+    }
+
+    input.addEventListener('input', () => {
+      clearTimeout(timer);
+      hiddenId.value = '';
+      picked.textContent = '';
+      const q = input.value.trim();
+      if (q.length < 2) {
+        list.classList.add('hidden');
+        list.innerHTML = '';
+        return;
+      }
+      timer = setTimeout(() => renderSuggestions(q), 280);
+    });
+
+    input.addEventListener('focus', () => {
+      const q = input.value.trim();
+      if (q.length >= 2 && list.innerHTML) list.classList.remove('hidden');
+    });
+
+    list.addEventListener('click', (ev) => {
+      const li = ev.target.closest('.member-suggestion[data-id]');
+      if (!li) return;
+      hiddenId.value = li.dataset.id;
+      input.value = li.dataset.label;
+      picked.textContent = `✓ ${li.dataset.label}`;
+      list.classList.add('hidden');
+    });
+
+    list.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+    });
+
+    input.addEventListener('blur', () => {
+      setTimeout(() => list.classList.add('hidden'), 180);
+    });
   }
 
   async function openSanciones() {
     await ensureChannels();
-    const members = await searchMembers('');
     const r = await api(`/api/guilds/${modalGuildId}/sanciones`);
     if (!r.ok) return alert('No se pudo cargar sanciones');
     const data = await r.json();
@@ -591,9 +659,8 @@ function initModuleModals(deps) {
       <div class="modal-section">
         <h3>Nueva sanción</h3>
         <div class="sanc-new-form">
-          <label class="form-label">Buscar miembro<input class="form-input" id="sanc-user-q" placeholder="Nombre o ID de Discord"></label>
-          <button type="button" class="btn btn-sm" data-act="search-user">Buscar</button>
-          <div id="sanc-user-slot">${memberSelect('sanc-user', members)}</div>
+          ${memberAutocompleteHtml()}
+          <p class="modal-meta">Escribe al menos 2 letras; verás miembros del servidor que coincidan.</p>
           <label class="form-label">Tipo
             <select class="form-input" id="sanc-tipo">
               <option value="strike">Strike</option>
@@ -623,6 +690,8 @@ function initModuleModals(deps) {
       </div>`,
     );
 
+    bindMemberAutocomplete();
+
     body.querySelector('[data-act="save-channel"]').addEventListener('click', async () => {
       const ch = document.getElementById('sanc-ch').value;
       if (!ch) return alert('Elige un canal de texto.');
@@ -635,18 +704,13 @@ function initModuleModals(deps) {
       else alert((await res.json().catch(() => ({}))).error || 'Error');
     });
 
-    body.querySelector('[data-act="search-user"]').addEventListener('click', async () => {
-      const q = document.getElementById('sanc-user-q').value.trim();
-      const found = await searchMembers(q);
-      document.getElementById('sanc-user-slot').innerHTML = memberSelect('sanc-user', found);
-    });
-
     body.querySelector('[data-act="apply-sanc"]').addEventListener('click', async () => {
-      const userId = document.getElementById('sanc-user')?.value;
+      const userId = document.getElementById('sanc-user-id')?.value;
+      const userLabel = document.getElementById('sanc-user-q')?.value.trim();
       const tipo = document.getElementById('sanc-tipo').value;
       const cantidad = Number(document.getElementById('sanc-cantidad').value);
       const razon = document.getElementById('sanc-razon').value.trim();
-      if (!userId) return alert('Elige un miembro.');
+      if (!userId) return alert(userLabel ? 'Elige un miembro de la lista de sugerencias.' : 'Busca y selecciona un miembro.');
       if (!razon) return alert('Escribe la razón.');
       if (!Number.isFinite(cantidad) || cantidad <= 0) return alert('Cantidad inválida.');
       const res = await api(`/api/guilds/${modalGuildId}/sanciones/aplicar`, {

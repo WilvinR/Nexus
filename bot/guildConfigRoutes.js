@@ -506,23 +506,47 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     const ctx = await access(req, res);
     if (!ctx) return;
     const q = String(req.query.q || '').trim().toLowerCase();
+
     try {
-      await ctx.guild.members.fetch({ query: q || undefined, limit: 25 }).catch(() => {});
+      if (q.length >= 2) {
+        await ctx.guild.members.fetch({ query: q, limit: 100 });
+      } else if (ctx.guild.members.cache.size < Math.min(ctx.guild.memberCount, 100)) {
+        await ctx.guild.members.fetch({ limit: 100 }).catch(() => {});
+      }
     } catch {
       /* cache parcial */
     }
+
     let members = [...ctx.guild.members.cache.values()]
       .filter((m) => !m.user.bot)
-      .map((m) => ({ id: m.id, username: m.user.tag, displayName: m.displayName }));
+      .map((m) => ({
+        id: m.id,
+        username: m.user.tag,
+        displayName: m.displayName,
+        globalName: m.user.globalName || '',
+      }));
+
     if (q) {
-      members = members.filter(
-        (m) =>
-          m.username.toLowerCase().includes(q) ||
-          m.displayName.toLowerCase().includes(q) ||
-          m.id.includes(q),
-      );
+      members = members.filter((m) => {
+        const fields = [m.username, m.displayName, m.globalName, m.id]
+          .filter(Boolean)
+          .map((s) => String(s).toLowerCase());
+        return fields.some((s) => s.includes(q));
+      });
+      members.sort((a, b) => {
+        const rank = (m) => {
+          const names = [m.displayName, m.globalName, m.username]
+            .filter(Boolean)
+            .map((s) => String(s).toLowerCase());
+          if (names.some((n) => n.startsWith(q))) return 0;
+          if (names.some((n) => n.includes(q))) return 1;
+          return 2;
+        };
+        return rank(a) - rank(b);
+      });
     }
-    res.json({ ok: true, members: members.slice(0, 25) });
+
+    res.json({ ok: true, members: members.slice(0, 20) });
   });
 
   app.get('/api/guilds/:guildId/categories', sessionAuth, async (req, res) => {

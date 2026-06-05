@@ -1747,3 +1747,62 @@ footer {
   display: grid;
   gap: 10px;
 }
+
+.member-autocomplete {
+  position: relative;
+}
+
+.member-suggestions {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.member-suggestions.hidden {
+  display: none;
+}
+
+.member-suggestion {
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.member-suggestion:last-child {
+  border-bottom: none;
+}
+
+.member-suggestion:hover,
+.member-suggestion:focus {
+  background: rgba(0, 229, 255, 0.12);
+}
+
+.member-suggestion.empty {
+  cursor: default;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.member-suggestion-name {
+  font-weight: 600;
+  color: #fff;
+}
+
+.member-suggestion-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.member-picked {
+  margin: 4px 0 0;
+  color: var(--accent);
+}
