@@ -133,6 +133,20 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     res.json({ ok: true, roles: listRoles(ctx.guild) });
   });
 
+  app.get('/api/guilds/:guildId/emojis', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const emojis = [...ctx.guild.emojis.cache.values()]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((e) => ({
+        id: e.id,
+        name: e.name,
+        animated: e.animated,
+        url: e.imageURL({ size: 64 }),
+      }));
+    res.json({ ok: true, emojis });
+  });
+
   app.get('/api/guilds/:guildId/registro', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;

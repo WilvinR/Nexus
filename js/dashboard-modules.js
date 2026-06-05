@@ -740,8 +740,25 @@ function initModuleModals(deps) {
   async function openEventos() {
     await ensureChannels();
     await ensureVoiceChannels();
-    const r = await api(`/api/guilds/${modalGuildId}/eventos`);
-    const data = r.ok ? await r.json() : { events: [] };
+
+    const [eventsRes, emojisRes] = await Promise.all([
+      api(`/api/guilds/${modalGuildId}/eventos`),
+      api(`/api/guilds/${modalGuildId}/emojis`),
+    ]);
+    const data = eventsRes.ok ? await eventsRes.json() : { events: [] };
+    const emojisData = emojisRes.ok ? await emojisRes.json() : { emojis: [] };
+    const guildEmojis = emojisData.emojis || [];
+
+    const emojiGrid = guildEmojis.length
+      ? guildEmojis
+          .map(
+            (e) =>
+              `<button type="button" class="evt-emoji-btn" data-id="${escapeHtml(e.id)}" data-name="${escapeHtml(e.name)}" title=":${escapeHtml(e.name)}:">
+                <img src="${escapeHtml(e.url)}" alt="${escapeHtml(e.name)}" width="32" height="32">
+              </button>`,
+          )
+          .join('')
+      : '<p class="modal-meta">No hay emojis personalizados en este servidor.</p>';
 
     const eventList =
       (data.events || []).length > 0
@@ -756,7 +773,7 @@ function initModuleModals(deps) {
     openModal(
       'Eventos',
       `<div class="modal-section">
-        <p class="modal-meta">Crea un evento igual que con <code>/crear_evento</code>. La hora es en UTC (ej. 20:00).</p>
+        <p class="modal-meta">Crea un evento con emojis del servidor. La hora es en UTC (ej. 20:00).</p>
         ${channelSelect('evt-ch', '', 'Canal de publicación')}
         <label class="form-label">Nombre<input class="form-input" id="evt-name" required></label>
         <label class="form-label">Descripción<textarea class="form-input" id="evt-desc" rows="2"></textarea></label>
@@ -764,10 +781,22 @@ function initModuleModals(deps) {
         <label class="form-label">Lugar<input class="form-input" id="evt-loc" placeholder="Black Zone..." required></label>
         ${voiceChannelSelect('evt-voice', '', 'Canal de voz (opcional)')}
         <label class="form-label">Color del embed<input class="form-input" id="evt-color" type="color" value="#5865f2"></label>
-        <label class="form-label">Roles del evento
-          <textarea class="form-input" id="evt-roles" rows="3" placeholder="Tanque:🛡️:4, Healer:🌿:3, DPS:⚔️:6"></textarea>
+        <label class="form-label">Imagen del evento (opcional)
+          <input class="form-input" id="evt-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
         </label>
-        <p class="modal-meta">Formato roles: <code>Nombre:emoji:cantidad</code> separados por coma. Se añade Ausente automáticamente.</p>
+        <div id="evt-image-preview" class="evt-image-preview hidden"></div>
+        <div class="evt-roles-block">
+          <h3 class="evt-roles-title">Roles del evento</h3>
+          <p class="modal-meta">Elige un emoji, pon nombre y cantidad, luego añade el rol.</p>
+          <div class="evt-emoji-grid" id="evt-emoji-grid">${emojiGrid}</div>
+          <div class="evt-role-form">
+            <span id="evt-picked-emoji" class="evt-picked-emoji">—</span>
+            <input class="form-input" id="evt-role-name" placeholder="Nombre del rol" maxlength="80">
+            <input class="form-input evt-role-qty" id="evt-role-qty" type="number" min="1" max="99" value="1" placeholder="Cant.">
+            <button type="button" class="btn" id="evt-add-role">Añadir rol</button>
+          </div>
+          <ul class="evt-role-list" id="evt-role-list"></ul>
+        </div>
         <div class="form-actions">
           <button type="button" class="btn btn-accent" data-act="create-evt">Publicar evento</button>
         </div>
@@ -778,6 +807,89 @@ function initModuleModals(deps) {
       </div>`,
     );
 
+    const roles = [];
+    let pickedEmoji = null;
+    let imageBase64 = null;
+    let imageName = null;
+
+    const pickedEl = document.getElementById('evt-picked-emoji');
+    const roleListEl = document.getElementById('evt-role-list');
+    const imageInput = document.getElementById('evt-image');
+    const previewEl = document.getElementById('evt-image-preview');
+
+    function renderRoles() {
+      roleListEl.innerHTML = roles.length
+        ? roles
+            .map(
+              (r, i) =>
+                `<li class="evt-role-item">
+                  <img src="${escapeHtml(r.emojiUrl || '')}" alt="" width="24" height="24">
+                  <span>${escapeHtml(r.name)}</span>
+                  <span class="evt-role-qty-label">×${r.required}</span>
+                  <button type="button" class="icon-btn" data-rm="${i}" title="Quitar">❌</button>
+                </li>`,
+            )
+            .join('')
+        : '<li class="modal-meta">Sin roles aún.</li>';
+    }
+
+    body.querySelectorAll('.evt-emoji-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        body.querySelectorAll('.evt-emoji-btn').forEach((b) => b.classList.remove('is-picked'));
+        btn.classList.add('is-picked');
+        pickedEmoji = { id: btn.dataset.id, name: btn.dataset.name, url: btn.querySelector('img')?.src || '' };
+        pickedEl.innerHTML = `<img src="${escapeHtml(pickedEmoji.url)}" alt="" width="28" height="28">`;
+      });
+    });
+
+    document.getElementById('evt-add-role').addEventListener('click', () => {
+      if (!pickedEmoji) return alert('Elige un emoji del servidor.');
+      const name = document.getElementById('evt-role-name').value.trim();
+      const required = parseInt(document.getElementById('evt-role-qty').value, 10) || 1;
+      if (!name) return alert('Escribe el nombre del rol.');
+      roles.push({
+        name,
+        emojiId: pickedEmoji.id,
+        emojiName: pickedEmoji.name,
+        emojiUrl: pickedEmoji.url,
+        required,
+      });
+      document.getElementById('evt-role-name').value = '';
+      renderRoles();
+    });
+
+    roleListEl.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-rm]');
+      if (!btn) return;
+      roles.splice(parseInt(btn.dataset.rm, 10), 1);
+      renderRoles();
+    });
+
+    imageInput.addEventListener('change', () => {
+      const file = imageInput.files?.[0];
+      if (!file) {
+        imageBase64 = null;
+        imageName = null;
+        previewEl.classList.add('hidden');
+        previewEl.innerHTML = '';
+        return;
+      }
+      if (file.size > 7 * 1024 * 1024) {
+        alert('La imagen no puede superar 7 MB.');
+        imageInput.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        imageBase64 = String(dataUrl).split(',')[1];
+        imageName = file.name;
+        previewEl.innerHTML = `<img src="${dataUrl}" alt="Vista previa">`;
+        previewEl.classList.remove('hidden');
+      };
+      reader.readAsDataURL(file);
+    });
+
     body.querySelector('[data-act="create-evt"]').addEventListener('click', async () => {
       const channelId = document.getElementById('evt-ch').value;
       const name = document.getElementById('evt-name').value.trim();
@@ -786,23 +898,27 @@ function initModuleModals(deps) {
       const location = document.getElementById('evt-loc').value.trim();
       const voiceChannelId = document.getElementById('evt-voice').value || null;
       const embedColor = document.getElementById('evt-color').value;
-      const rolesText = document.getElementById('evt-roles').value.trim();
       if (!channelId) return alert('Elige el canal donde se publicará.');
       if (!name || !time || !location) return alert('Nombre, hora y lugar son obligatorios.');
-      if (!rolesText) return alert('Define al menos un rol (ej. Tanque:🛡️:4).');
+      if (!roles.length) return alert('Añade al menos un rol con emoji.');
+      const payload = {
+        channelId,
+        name,
+        description,
+        time,
+        location,
+        voiceChannelId,
+        embedColor,
+        roles,
+      };
+      if (imageBase64) {
+        payload.imageBase64 = imageBase64;
+        payload.imageName = imageName;
+      }
       const res = await api(`/api/guilds/${modalGuildId}/eventos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          channelId,
-          name,
-          description,
-          time,
-          location,
-          voiceChannelId,
-          embedColor,
-          rolesText,
-        }),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         alert('Evento publicado en Discord.');

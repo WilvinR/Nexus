@@ -11,6 +11,7 @@ const {
   TextInputBuilder,
   TextInputStyle,
   ChannelType,
+  AttachmentBuilder,
 } = require('discord.js');
 const { randomUUID } = require('crypto');
 
@@ -24,25 +25,27 @@ function gid(id) {
 }
 
 function toSerifBold(text) {
-  const n = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const b = '𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙𝐚𝐛𝐜𝐝𝐞𝐟𝐠𝐡𝐢𝐣𝐤𝐥𝐦𝐧𝐨𝐩𝐪𝐫𝐬𝐭𝐮𝐯𝐰𝐱𝐲𝐳𝟎𝟏𝟐𝟑𝟒𝟓𝟔𝟕𝟖𝟗';
   return String(text)
     .split('')
     .map((c) => {
-      const i = n.indexOf(c);
-      return i >= 0 ? b[i] : c;
+      const code = c.codePointAt(0);
+      if (code >= 0x41 && code <= 0x5a) return String.fromCodePoint(0x1d400 + (code - 0x41));
+      if (code >= 0x61 && code <= 0x7a) return String.fromCodePoint(0x1d41a + (code - 0x61));
+      if (code >= 0x30 && code <= 0x39) return String.fromCodePoint(0x1d7ce + (code - 0x30));
+      return c;
     })
     .join('');
 }
 
 function toBoldSans(text) {
-  const n = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  const b = '𝗔𝗕𝗖𝗗𝗘𝗙𝗚𝗛𝗜𝗝𝗞𝗟𝗠𝗡𝗢𝗣𝗤𝗥𝗦𝗧𝗨𝗩𝗪𝗫𝗬𝗭𝗮𝗯𝗰𝗱𝗲𝗳𝗴𝗵𝗶𝗷𝗸𝗹𝗺𝗻𝗼𝗽𝗾𝗿𝘀𝘁𝘂𝘃𝘄𝘅𝘆𝘇𝟬𝟭𝟮𝟯𝟰𝟱𝟲𝟳𝟴𝟵';
   return String(text)
     .split('')
     .map((c) => {
-      const i = n.indexOf(c);
-      return i >= 0 ? b[i] : c;
+      const code = c.codePointAt(0);
+      if (code >= 0x41 && code <= 0x5a) return String.fromCodePoint(0x1d5d4 + (code - 0x41));
+      if (code >= 0x61 && code <= 0x7a) return String.fromCodePoint(0x1d5ee + (code - 0x61));
+      if (code >= 0x30 && code <= 0x39) return String.fromCodePoint(0x1d7ec + (code - 0x30));
+      return c;
     })
     .join('');
 }
@@ -64,6 +67,54 @@ function timeRemaining(ts) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+function formatRoleEmoji(data) {
+  if (data?.emojiId) return `<:${data.emojiName || 'emoji'}:${data.emojiId}>`;
+  return data?.emoji || '⭐';
+}
+
+function selectMenuEmoji(data) {
+  if (data?.emojiId) return { id: String(data.emojiId), name: data.emojiName || 'emoji' };
+  const em = data?.emoji;
+  if (em && typeof em === 'string' && em.length <= 4) return em;
+  return undefined;
+}
+
+function roleKey(name, existing) {
+  let base = String(name || 'rol')
+    .trim()
+    .replace(/\s+/g, '_')
+    .replace(/[^\w]/g, '')
+    .slice(0, 40) || 'rol';
+  if (!existing[base]) return base;
+  let i = 2;
+  while (existing[`${base}_${i}`]) i++;
+  return `${base}_${i}`;
+}
+
+function normalizeRoles(body) {
+  if (Array.isArray(body.roles) && body.roles.length) {
+    const roles = {};
+    for (const r of body.roles) {
+      const name = String(r.name || '').trim();
+      if (!name) continue;
+      const key = roleKey(name, roles);
+      roles[key] = {
+        name,
+        emojiId: r.emojiId ? String(r.emojiId) : null,
+        emojiName: r.emojiName ? String(r.emojiName) : null,
+        emoji: r.emojiId ? null : String(r.emoji || '⭐'),
+        users: [],
+        required: Math.max(0, parseInt(r.required, 10) || 0),
+      };
+    }
+    if (!roles.Ausente) {
+      roles.Ausente = { emoji: '❌', users: [], required: 0, name: 'Ausente' };
+    }
+    return roles;
+  }
+  return parseRoles(String(body.rolesText || body.roles || ''));
+}
+
 function parseRoles(text) {
   const roles = {};
   for (const entry of text.split(',')) {
@@ -82,12 +133,12 @@ function rolesDisplay(roles) {
     if (key === 'Ausente') continue;
     const assigned = (data.users || []).length;
     const req = data.required || 0;
-    out += `**★-${toBoldSans(data.name || key)}** ${data.emoji} (${assigned}/${req})\n`;
+    out += `**★-${toBoldSans(data.name || key)}** ${formatRoleEmoji(data)} (${assigned}/${req})\n`;
     if (data.users?.length) out += `${data.users.join('\n')}\n`;
   }
   const aus = roles.Ausente;
   if (aus?.users?.length) {
-    out += `\n**★-${toBoldSans('Ausente')}** ${aus.emoji} (${aus.users.length}/0)\n${aus.users.join('\n')}\n`;
+    out += `\n**★-${toBoldSans('Ausente')}** ${formatRoleEmoji(aus)} (${aus.users.length}/0)\n${aus.users.join('\n')}\n`;
   }
   return out.trim() || 'No roles asignados.';
 }
@@ -95,10 +146,14 @@ function rolesDisplay(roles) {
 function buildEmbed(ev) {
   const color = ev.embed_color || 0x5865f2;
   const desc = (ev.description || '').trim();
+  const rawName = String(ev.name || 'Evento').trim();
+  const title = rawName.charAt(0).toUpperCase() + rawName.slice(1);
   const embed = new EmbedBuilder()
-    .setTitle(toSerifBold((ev.name || 'Evento').charAt(0).toUpperCase() + (ev.name || '').slice(1)))
+    .setTitle(toSerifBold(title))
     .setDescription(desc ? `**${desc}**` : '*Sin descripción*')
     .setColor(color);
+
+  if (ev.image_url) embed.setImage(ev.image_url);
 
   const ts = ev.event_timestamp || 0;
   embed.addFields(
@@ -117,7 +172,7 @@ function buildEmbed(ev) {
       value: ev.voice_channel_id ? `<#${ev.voice_channel_id}>` : 'No especificado',
       inline: true,
     },
-    { name: '📍 Lugar', value: ev.location || 'No especificado', inline: true },
+    { name: '📍 Lugar', value: toBoldSans(ev.location || 'No especificado'), inline: true },
   );
 
   const roles = ev.roles || {};
@@ -134,12 +189,16 @@ function buildEmbed(ev) {
 }
 
 function roleSelectRow(messageId, roles) {
-  const options = Object.entries(roles).map(([key, data]) => ({
-    label: (data.name || key).slice(0, 100),
-    value: key,
-    emoji: data.emoji?.length <= 2 ? data.emoji : undefined,
-    description: key === 'Ausente' ? 'Marcarme ausente' : `${(data.users || []).length}/${data.required || 0}`,
-  }));
+  const options = Object.entries(roles).map(([key, data]) => {
+    const opt = {
+      label: (data.name || key).slice(0, 100),
+      value: key,
+      description: key === 'Ausente' ? 'Marcarme ausente' : `${(data.users || []).length}/${data.required || 0}`,
+    };
+    const em = selectMenuEmoji(data);
+    if (em) opt.emoji = em;
+    return opt;
+  });
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId(`${PREFIX}:role:${messageId}`)
@@ -210,14 +269,30 @@ function startTimer(client, getDb, messageId) {
 }
 
 async function publishEvent(client, getDb, ev, channel) {
-  const msg = await channel.send({
-    embeds: [buildEmbed(ev)],
+  const embed = buildEmbed(ev);
+  const files = [];
+  if (ev.image_base64) {
+    const imageName = ev.image_name || 'evento.png';
+    files.push(new AttachmentBuilder(Buffer.from(ev.image_base64, 'base64'), { name: imageName }));
+    embed.setImage(`attachment://${imageName}`);
+  }
+
+  const payload = {
+    embeds: [embed],
     components: [roleSelectRow('pending', ev.roles)],
-  });
+  };
+  if (files.length) payload.files = files;
+
+  const msg = await channel.send(payload);
+  const att = msg.attachments.first();
+  if (att?.url) ev.image_url = att.url;
+  delete ev.image_base64;
+  delete ev.image_name;
+
   ev.message_id = msg.id;
   ev.channel_id = channel.id;
   saveEvent(getDb, msg.id, ev);
-  await msg.edit({ components: [roleSelectRow(msg.id, ev.roles)] });
+  await msg.edit({ embeds: [buildEmbed(ev)], components: [roleSelectRow(msg.id, ev.roles)] });
   await channel.send({ content: '@everyone Nuevo evento creado!' });
   startTimer(client, getDb, msg.id);
   return msg;
@@ -239,11 +314,14 @@ function buildEventFromPayload(body, guildId, creator) {
     location: String(body.location || '').trim(),
     guild_id: gid(guildId),
     voice_channel_id: body.voiceChannelId || body.voice_channel_id || null,
-    roles: parseRoles(String(body.rolesText || body.roles || '')),
+    roles: normalizeRoles(body),
     embed_color: embedColor || 0x5865f2,
     creator: creator || 'Dashboard',
     event_timestamp: parseTimeUtc(time),
     expired: false,
+    image_base64: body.imageBase64 || body.image_base64 || null,
+    image_name: body.imageName || body.image_name || 'evento.png',
+    image_url: body.imageUrl || body.image_url || null,
   };
 }
 
@@ -255,6 +333,9 @@ async function createEventFromDashboard(client, getDb, guild, channelId, body, c
   const channel = guild.channels.cache.get(String(channelId));
   if (!channel?.isTextBased()) throw new Error('Canal de publicación no válido');
   const ev = buildEventFromPayload(body, guild.id, creator);
+  if (!Object.keys(ev.roles || {}).filter((k) => k !== 'Ausente').length) {
+    throw new Error('Añade al menos un rol al evento');
+  }
   return publishEvent(client, getDb, ev, channel);
 }
 
