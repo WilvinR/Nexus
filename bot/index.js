@@ -14,7 +14,7 @@ const api = require('./api');
 const kill = require('./kill');
 const moderacion = require('./moderacion');
 const eventos = require('./eventos');
-const musica = require('./musica');
+const sanciones = require('./sanciones');
 const battle = require('./battle');
 const bal = require('./bal');
 const utilidad = require('./utilidad');
@@ -24,7 +24,7 @@ const commandSync = require('./commandSync');
 const { logError, logSystem } = require('./adminRoutes');
 const { logCommand, ensureGuildMeta, startStatsScheduler } = require('./stats');
 const { buildInviteUrl } = require('./invite');
-const modulos = [require('./registro'), kill, moderacion, eventos, musica, battle, bal, utilidad, mercado];
+const modulos = [require('./registro'), kill, moderacion, eventos, sanciones, battle, bal, utilidad, mercado];
 commandSync.init(modulos, logs);
 
 // ——— .env ———
@@ -198,6 +198,28 @@ function getDb() {
     CREATE TABLE IF NOT EXISTS guild_meta (
       guild_id TEXT PRIMARY KEY, premium INTEGER DEFAULT 0,
       owner_id TEXT, owner_tag TEXT, joined_at INTEGER, notes TEXT
+    );
+    CREATE TABLE IF NOT EXISTS sanciones_config (
+      guild_id TEXT PRIMARY KEY,
+      channel_id TEXT
+    );
+    CREATE TABLE IF NOT EXISTS sanciones_records (
+      user_id TEXT NOT NULL,
+      guild_id TEXT NOT NULL,
+      strikes INTEGER DEFAULT 0,
+      multas INTEGER DEFAULT 0,
+      PRIMARY KEY (user_id, guild_id)
+    );
+    CREATE TABLE IF NOT EXISTS sanciones_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      tipo TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      reason TEXT,
+      moderator_id TEXT,
+      created_at INTEGER NOT NULL
     );
   `);
   const registroCols = db.prepare('PRAGMA table_info(registro_guilds)').all();

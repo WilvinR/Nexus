@@ -1,5 +1,5 @@
 /* Configuración por módulo (modales) — requiere api() y escapeHtml del dashboard */
-const CONFIG_MODULES = new Set(['registro', 'kill', 'battle', 'logs', 'utilidad']);
+const CONFIG_MODULES = new Set(['registro', 'kill', 'battle', 'logs', 'utilidad', 'sanciones']);
 
 let modalGuildId = null;
   let channelsCache = [];
@@ -113,6 +113,7 @@ function initModuleModals(deps) {
     if (moduleId === 'battle') return openBattle();
     if (moduleId === 'logs') return openLogs();
     if (moduleId === 'utilidad') return openUtilidad();
+    if (moduleId === 'sanciones') return openSanciones();
   };
 
   async function openRegistro() {
@@ -499,6 +500,110 @@ function initModuleModals(deps) {
         alert('Canal reloj UTC eliminado.');
         closeModal();
       } else alert((await res.json().catch(() => ({}))).error || 'Error');
+    });
+  }
+
+  async function openSanciones() {
+    await ensureChannels();
+    const r = await api(`/api/guilds/${modalGuildId}/sanciones`);
+    if (!r.ok) return alert('No se pudo cargar sanciones');
+    const data = await r.json();
+    const maxS = data.maxStrikes || 3;
+
+    const rows =
+      (data.records || []).length > 0
+        ? (data.records || [])
+            .map(
+              (u) => `<tr data-uid="${escapeHtml(u.userId)}">
+          <td>${escapeHtml(u.username)}</td>
+          <td><input type="number" class="form-input sanc-strikes" min="0" max="${maxS}" value="${u.strikes}" style="width:4rem"></td>
+          <td><input type="number" class="form-input sanc-multas" min="0" value="${u.multas}" style="width:6rem"></td>
+          <td>
+            <button type="button" class="btn btn-sm btn-accent" data-act="save-user">Guardar</button>
+            <button type="button" class="btn btn-sm btn-danger" data-act="reset-user">Limpiar</button>
+          </td>
+        </tr>`,
+            )
+            .join('')
+        : '<tr><td colspan="4" class="modal-meta">Nadie con strikes o multas activas.</td></tr>';
+
+    const logRows =
+      (data.log || []).length > 0
+        ? (data.log || [])
+            .slice(0, 15)
+            .map((e) => {
+              const when = new Date(e.createdAt).toLocaleString('es');
+              const act = e.action === 'apply' ? '➕' : '➖';
+              const tipo = e.tipo === 'strike' ? 'Strike' : 'Multa';
+              const reason = e.reason ? ` — ${escapeHtml(e.reason)}` : '';
+              return `<li class="sanc-log-item">${act} <strong>${escapeHtml(e.username)}</strong>: ${tipo} ${e.amount}${reason} <span class="modal-meta">(${when})</span></li>`;
+            })
+            .join('')
+        : '<li class="modal-meta">Sin movimientos recientes.</li>';
+
+    openModal(
+      'Sanciones',
+      `<div class="modal-section">
+        <p class="modal-meta">Canal donde el bot publica strikes y multas. Máximo ${maxS} strikes por miembro.</p>
+        ${channelSelect('sanc-ch', data.channelId, 'Canal de infracciones')}
+        <div class="form-actions">
+          <button type="button" class="btn btn-accent" data-act="save-channel">Guardar canal</button>
+        </div>
+      </div>
+      <div class="modal-section">
+        <h3>Miembros sancionados</h3>
+        <div class="sanciones-table-wrap">
+          <table class="sanciones-table">
+            <thead><tr><th>Miembro</th><th>Strikes</th><th>Multas</th><th></th></tr></thead>
+            <tbody id="sanc-rows">${rows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-section">
+        <h3>Actividad reciente</h3>
+        <ul class="sanc-log-list">${logRows}</ul>
+      </div>`,
+    );
+
+    body.querySelector('[data-act="save-channel"]').addEventListener('click', async () => {
+      const ch = document.getElementById('sanc-ch').value;
+      if (!ch) return alert('Elige un canal de texto.');
+      const res = await api(`/api/guilds/${modalGuildId}/sanciones`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId: ch }),
+      });
+      if (res.ok) alert('Canal de sanciones guardado.');
+      else alert((await res.json().catch(() => ({}))).error || 'Error');
+    });
+
+    body.querySelector('#sanc-rows').addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button');
+      if (!btn) return;
+      const tr = btn.closest('tr[data-uid]');
+      if (!tr) return;
+      const uid = tr.dataset.uid;
+      if (btn.dataset.act === 'save-user') {
+        const strikes = Number(tr.querySelector('.sanc-strikes').value);
+        const multas = Number(tr.querySelector('.sanc-multas').value);
+        const res = await api(`/api/guilds/${modalGuildId}/sanciones/users/${uid}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ strikes, multas }),
+        });
+        if (res.ok) alert('Registro actualizado.');
+        else alert((await res.json().catch(() => ({}))).error || 'Error');
+      }
+      if (btn.dataset.act === 'reset-user') {
+        if (!confirm('¿Limpiar strikes y multas de este miembro?')) return;
+        const res = await api(`/api/guilds/${modalGuildId}/sanciones/users/${uid}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          tr.remove();
+          alert('Registro limpiado.');
+        } else alert((await res.json().catch(() => ({}))).error || 'Error');
+      }
     });
   }
 

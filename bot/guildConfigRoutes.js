@@ -1,6 +1,15 @@
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { albionGuild, albionAlliance, albionPlayer } = require('./albionApi');
 const { getUtcClock, setupUtcInGuild, removeUtcFromGuild, UTC_TICK_MS } = require('./utcClock');
+const {
+  getConfig: getSancionesConfig,
+  setChannel: setSancionesChannel,
+  getRecord: getSancionRecord,
+  updateRecord: updateSancionRecord,
+  listRecords: listSancionRecords,
+  listLog: listSancionLog,
+  MAX_STRIKES,
+} = require('./sanciones');
 
 function gid(id) {
   return String(id);
@@ -508,6 +517,81 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
 
     await removeUtcFromGuild(client, getDb, gid(ctx.guildId), log);
     res.json({ ok: true, channelId: null });
+  });
+
+  app.get('/api/guilds/:guildId/sanciones', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const cfg = getSancionesConfig(getDb, ctx.guildId);
+    const records = listSancionRecords(getDb, ctx.guildId).map((r) => {
+      const member = ctx.guild.members.cache.get(r.user_id);
+      return {
+        userId: r.user_id,
+        username: member?.user?.tag || member?.displayName || r.user_id,
+        strikes: r.strikes,
+        multas: r.multas,
+      };
+    });
+    const logRows = listSancionLog(getDb, ctx.guildId, 40).map((row) => {
+      const member = ctx.guild.members.cache.get(row.user_id);
+      const mod = row.moderator_id ? ctx.guild.members.cache.get(row.moderator_id) : null;
+      return {
+        id: row.id,
+        userId: row.user_id,
+        username: member?.user?.tag || row.user_id,
+        action: row.action,
+        tipo: row.tipo,
+        amount: row.amount,
+        reason: row.reason,
+        moderator: mod?.user?.tag || row.moderator_id,
+        createdAt: row.created_at,
+      };
+    });
+    res.json({
+      ok: true,
+      channelId: cfg.channelId,
+      maxStrikes: MAX_STRIKES,
+      records,
+      log: logRows,
+    });
+  });
+
+  app.patch('/api/guilds/:guildId/sanciones', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const channelId =
+      req.body?.channelId != null ? String(req.body.channelId).trim() : null;
+    if (channelId) {
+      const ch = ctx.guild.channels.cache.get(channelId);
+      if (!ch?.isTextBased()) return res.status(400).json({ error: 'Canal no válido' });
+    }
+    setSancionesChannel(getDb, ctx.guildId, channelId);
+    res.json({ ok: true, channelId });
+  });
+
+  app.patch('/api/guilds/:guildId/sanciones/users/:userId', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const userId = gid(req.params.userId);
+    const strikes = Number(req.body?.strikes);
+    const multas = Number(req.body?.multas);
+    if (!Number.isFinite(strikes) || !Number.isFinite(multas)) {
+      return res.status(400).json({ error: 'Strikes y multas deben ser números' });
+    }
+    if (strikes < 0 || strikes > MAX_STRIKES || multas < 0) {
+      return res.status(400).json({ error: `Valores inválidos (strikes 0-${MAX_STRIKES})` });
+    }
+    getSancionRecord(getDb, userId, ctx.guildId);
+    updateSancionRecord(getDb, userId, ctx.guildId, strikes, multas);
+    res.json({ ok: true, userId, strikes, multas });
+  });
+
+  app.delete('/api/guilds/:guildId/sanciones/users/:userId', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const userId = gid(req.params.userId);
+    updateSancionRecord(getDb, userId, ctx.guildId, 0, 0);
+    res.json({ ok: true });
   });
 }
 

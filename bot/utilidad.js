@@ -84,15 +84,15 @@ const CATEGORIES = {
       { name: '/plantillas', desc: 'Carga o elimina plantillas de eventos.' },
     ],
   },
-  musica: {
-    label: 'Música',
-    emoji: '🎵',
+  sanciones: {
+    label: 'Sanciones',
+    emoji: '⚖️',
     commands: [
-      { name: '/play', desc: 'Reproduce música en tu canal de voz (URL o búsqueda).' },
-      { name: '/skip', desc: 'Salta la canción actual.' },
-      { name: '/cola', desc: 'Muestra la cola de reproducción.' },
-      { name: '/stop', desc: 'Detiene la música y limpia la cola.' },
-      { name: '/salir', desc: 'Desconecta el bot del canal de voz.' },
+      { name: '/infraccion', desc: 'Aplica un strike o multa a un miembro (Mod).' },
+      { name: '/remover', desc: 'Quita strikes o multas a un miembro (Mod).' },
+      { name: '/mis_infracciones', desc: 'Consulta tus strikes y multas.' },
+      { name: '/infracciones', desc: 'Consulta las infracciones de un miembro (Mod).' },
+      { name: '/config_canal', desc: 'Canal donde se publican las infracciones (Mod).' },
     ],
   },
   utilidad: {

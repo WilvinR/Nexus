@@ -12,7 +12,7 @@ const MODULE_EMOJI = {
   logs: '📜',
   moderacion: '⚒️',
   eventos: '🏹',
-  musica: '🎵',
+  sanciones: '⚖️',
   bal: '💰',
   utilidad: '📩',
 };
@@ -115,7 +115,7 @@ function renderGuildGrid() {
 
 function renderModules(modList, guildId, modules) {
   modList.innerHTML = '';
-  const configurable = moduleModals?.CONFIG_MODULES || new Set(['registro', 'kill', 'battle', 'logs', 'utilidad']);
+  const configurable = moduleModals?.CONFIG_MODULES || new Set(['registro', 'kill', 'battle', 'logs', 'utilidad', 'sanciones']);
   for (const m of modules) {
     const showConfig = configurable.has(m.id);
     const emoji = MODULE_EMOJI[m.id] || '⚙️';
@@ -196,7 +196,7 @@ async function loadDashboard() {
     : data.ownersOnly
       ? 'Toca un servidor donde seas dueño de Discord (con Nexus instalado).'
       : 'Toca un servidor que administres.';
-  hint += ' Registro, Killboard, Battle y Logs tienen Configurar.';
+  hint += ' Registro, Killboard, Battle, Logs, Sanciones y Utilidad tienen Configurar.';
   if (me.isOwner) {
     hint += ' · <a href="admin.html" class="admin-link">Panel owner</a>';
   }
