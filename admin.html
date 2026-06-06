@@ -24,23 +24,23 @@
     </section>
 
     <section id="admin-panel" class="hidden admin-panel">
-      <div class="dash-head">
+      <div class="dash-head admin-head">
         <div>
           <div class="section-label">// OWNER</div>
           <h1 class="dash-title">ADMIN <span>NEXUS</span></h1>
         </div>
-        <button type="button" class="btn btn-accent" id="admin-logout">Salir</button>
+        <button type="button" class="btn btn-accent btn-admin-out" id="admin-logout">Salir</button>
       </div>
 
       <div class="admin-tabs" id="admin-tabs" role="tablist" aria-label="Secciones del panel">
-        <button type="button" data-tab="overview" class="active">Resumen</button>
-        <button type="button" data-tab="stats">Estadísticas</button>
-        <button type="button" data-tab="announce">Anuncios</button>
-        <button type="button" data-tab="guilds">Servidores</button>
-        <button type="button" data-tab="suggestions">Sugerencias</button>
-        <button type="button" data-tab="errors">Errores</button>
-        <button type="button" data-tab="syslogs">Logs sistema</button>
-        <button type="button" data-tab="services">Servicios</button>
+        <button type="button" data-tab="overview" class="active"><span class="admin-tab-icon" aria-hidden="true">📊</span><span class="admin-tab-label">Resumen</span></button>
+        <button type="button" data-tab="stats"><span class="admin-tab-icon" aria-hidden="true">📈</span><span class="admin-tab-label">Estadísticas</span></button>
+        <button type="button" data-tab="announce"><span class="admin-tab-icon" aria-hidden="true">📢</span><span class="admin-tab-label">Anuncios</span></button>
+        <button type="button" data-tab="guilds"><span class="admin-tab-icon" aria-hidden="true">🛡️</span><span class="admin-tab-label">Servidores</span></button>
+        <button type="button" data-tab="suggestions"><span class="admin-tab-icon" aria-hidden="true">💡</span><span class="admin-tab-label">Sugerencias</span></button>
+        <button type="button" data-tab="errors"><span class="admin-tab-icon" aria-hidden="true">⚠️</span><span class="admin-tab-label">Errores</span></button>
+        <button type="button" data-tab="syslogs"><span class="admin-tab-icon" aria-hidden="true">📋</span><span class="admin-tab-label">Logs</span></button>
+        <button type="button" data-tab="services"><span class="admin-tab-icon" aria-hidden="true">⚙️</span><span class="admin-tab-label">Servicios</span></button>
       </div>
 
       <div id="tab-overview" class="admin-tab"></div>

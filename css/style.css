@@ -1086,6 +1086,9 @@ footer {
 }
 
 .admin-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px 18px;
   border: 1px solid var(--border);
   background: var(--bg-card);
@@ -1097,6 +1100,19 @@ footer {
   cursor: pointer;
   border-radius: var(--radius-pill);
   transition: border-color 0.2s, color 0.2s, background 0.2s, box-shadow 0.2s;
+}
+
+.admin-tab-icon {
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.admin-tab-label {
+  line-height: 1.2;
+}
+
+.btn-admin-out {
+  flex-shrink: 0;
 }
 
 .admin-tabs button:hover {
@@ -1601,16 +1617,63 @@ footer {
   }
 
   .admin-tabs {
-    gap: 6px;
-    margin: 16px 0 20px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    gap: 8px;
+    margin: 12px calc(-1 * var(--page-pad)) 16px;
+    padding: 6px var(--page-pad) 10px;
+    background: linear-gradient(180deg, rgba(2, 3, 5, 0.96) 70%, transparent);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .admin-tabs::-webkit-scrollbar {
+    display: none;
   }
 
   .admin-tabs button {
+    flex: 0 0 auto;
+    min-width: unset;
+    scroll-snap-align: start;
     padding: 8px 12px;
-    font-size: 0.82rem;
-    flex: 1 1 auto;
-    min-width: calc(50% - 6px);
-    text-align: center;
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
+
+  .admin-tab-icon {
+    font-size: 0.95rem;
+  }
+
+  .admin-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .admin-head .dash-title {
+    font-size: clamp(1.35rem, 5vw, 1.75rem);
+    margin: 4px 0 0;
+    letter-spacing: 2px;
+  }
+
+  .admin-head .section-label {
+    margin-bottom: 0;
+    font-size: 0.72rem;
+  }
+
+  .admin-head .btn-admin-out {
+    width: auto;
+    padding: 8px 14px;
+    font-size: 0.78rem;
+    letter-spacing: 1px;
+  }
+
+  .admin-wrap {
+    padding-top: calc(var(--nav-h) + 16px);
   }
 
   .stat-grid {
@@ -1695,7 +1758,9 @@ footer {
   }
 
   .admin-tabs button {
-    min-width: 100%;
+    padding: 7px 10px;
+    font-size: 0.76rem;
+    gap: 4px;
   }
 
   .hero h1 {
