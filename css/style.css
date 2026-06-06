@@ -1808,6 +1808,34 @@ footer {
   line-height: 1.4;
 }
 
+.evt-active-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.evt-active-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.evt-active-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.evt-role-emoji {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  font-size: 1.1rem;
+}
+
 .sanc-new-form {
   display: grid;
   gap: 10px;

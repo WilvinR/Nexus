@@ -12,6 +12,7 @@ const {
   TextInputStyle,
   ChannelType,
   AttachmentBuilder,
+  MessageFlags,
 } = require('discord.js');
 const { randomUUID } = require('crypto');
 
@@ -403,8 +404,313 @@ async function createEventFromDashboard(client, getDb, guild, channelId, body, c
   return publishEvent(client, getDb, ev, channel);
 }
 
+function getGuildEvent(guildId, messageId) {
+  const ev = cache.get(gid(messageId));
+  if (!ev || String(ev.guild_id) !== gid(guildId)) return null;
+  return ev;
+}
+
+function mergeRoleSignups(oldRoles, newRoles) {
+  ensureAusente(newRoles);
+  if (oldRoles?.Ausente?.users?.length) {
+    newRoles.Ausente.users = [...oldRoles.Ausente.users];
+  }
+  for (const [key, data] of Object.entries(newRoles)) {
+    if (key === 'Ausente') continue;
+    const byKey = oldRoles?.[key];
+    const byName = Object.entries(oldRoles || {}).find(
+      ([k, d]) =>
+        k !== 'Ausente' &&
+        String(d.name || k).toLowerCase() === String(data.name || key).toLowerCase(),
+    );
+    const old = byKey || byName?.[1];
+    if (old?.users?.length) data.users = [...old.users];
+  }
+  return newRoles;
+}
+
+function parseDashboardEmbedColor(raw, fallback = 0x5865f2) {
+  if (raw == null || raw === '') return fallback;
+  if (typeof raw === 'number') return raw;
+  let s = String(raw).trim();
+  if (s.startsWith('#')) s = s.slice(1);
+  if (!/^[0-9a-fA-F]{6}$/.test(s)) return fallback;
+  return parseInt(s, 16);
+}
+
+function eventToDashboardPayload(ev) {
+  const roles = [];
+  for (const [key, data] of Object.entries(ev.roles || {})) {
+    if (key === 'Ausente') continue;
+    roles.push({
+      name: data.name || key,
+      emojiId: data.emojiId || null,
+      emojiName: data.emojiName || null,
+      emoji: data.emoji || null,
+      required: data.required || 0,
+      signedUp: (data.users || []).length,
+    });
+  }
+  const colorNum = ev.embed_color ?? 0x5865f2;
+  return {
+    messageId: ev.message_id,
+    channelId: ev.channel_id,
+    name: ev.name,
+    description: ev.description || '',
+    time: ev.time,
+    location: ev.location,
+    voiceChannelId: ev.voice_channel_id || '',
+    embedColor: `#${Number(colorNum).toString(16).padStart(6, '0')}`,
+    roles,
+    hasImage: Boolean(ev.has_event_image || ev.image_url),
+    imageUrl: ev.image_url || null,
+    creator: ev.creator || '',
+  };
+}
+
+async function updateEventFromDashboard(client, getDb, guild, messageId, body) {
+  const ev = getGuildEvent(guild.id, messageId);
+  if (!ev) throw new Error('Evento no encontrado');
+
+  if (body.name !== undefined) {
+    const name = String(body.name).trim();
+    if (!name) throw new Error('Nombre requerido');
+    ev.name = name;
+  }
+  if (body.description !== undefined) ev.description = String(body.description || '').trim();
+  if (body.location !== undefined) {
+    const location = String(body.location).trim();
+    if (!location) throw new Error('Lugar requerido');
+    ev.location = location;
+  }
+  if (body.voiceChannelId !== undefined) ev.voice_channel_id = body.voiceChannelId || null;
+  if (body.embedColor !== undefined) ev.embed_color = parseDashboardEmbedColor(body.embedColor, ev.embed_color);
+
+  if (body.time !== undefined) {
+    const time = String(body.time).trim();
+    if (!/^\d{1,2}:\d{2}$/.test(time)) throw new Error('Hora inválida. Usa HH:MM (UTC).');
+    ev.time = time;
+    ev.event_timestamp = parseTimeUtc(time);
+    ev.expired = false;
+  }
+
+  if (body.roles !== undefined) {
+    const newRoles = normalizeRoles(body);
+    if (!Object.keys(newRoles).filter((k) => k !== 'Ausente').length) {
+      throw new Error('Añade al menos un rol al evento');
+    }
+    ev.roles = mergeRoleSignups(ev.roles, newRoles);
+  }
+
+  if (body.removeImage) {
+    ev.has_event_image = false;
+    ev.image_url = null;
+    ev.image_file = null;
+  }
+
+  const ch = await client.channels.fetch(ev.channel_id);
+  const msg = await ch.messages.fetch(messageId);
+  const hasNewImage = Boolean(body.imageBase64 || body.image_base64);
+
+  if (hasNewImage) {
+    const meta = imageUploadFromBase64(
+      body.imageBase64 || body.image_base64,
+      body.imageName || body.image_name || 'evento.png',
+    );
+    const file = new AttachmentBuilder(meta.buffer, { name: meta.filename });
+    ev.has_event_image = true;
+    ev.image_file = meta.filename;
+    const draft = { ...ev, image_url: null };
+    await msg.edit({
+      embeds: [buildEmbed(draft)],
+      files: [file],
+      components: [roleSelectRow(messageId, ev.roles)],
+    });
+    const updated = await ch.messages.fetch(messageId);
+    const att = updated.attachments.find((a) => a.name === meta.filename);
+    if (att?.url) ev.image_url = att.url;
+    await msg.edit({
+      embeds: [buildEmbed(ev, updated)],
+      components: [roleSelectRow(messageId, ev.roles)],
+      attachments: [],
+    });
+  } else if (body.removeImage) {
+    await msg.edit({
+      embeds: [buildEmbed(ev)],
+      components: [roleSelectRow(messageId, ev.roles)],
+      attachments: [],
+    });
+  } else {
+    await refreshEventMessage(msg, ev, messageId);
+  }
+
+  saveEvent(getDb, messageId, ev);
+  if (!timers.has(gid(messageId))) startTimer(client, getDb, messageId);
+  return msg;
+}
+
+async function deleteEventFromDashboard(client, getDb, guildId, messageId) {
+  const ev = getGuildEvent(guildId, messageId);
+  if (!ev) throw new Error('Evento no encontrado');
+  try {
+    const ch = await client.channels.fetch(ev.channel_id);
+    const msg = await ch.messages.fetch(messageId);
+    await msg.delete();
+  } catch {
+    /* mensaje ya eliminado */
+  }
+  deleteEvent(getDb, messageId);
+}
+
 function pendingKey(ix) {
   return `${ix.guildId}:${ix.user.id}`;
+}
+
+function ep(payload) {
+  const { ephemeral: _e, flags, ...rest } = payload;
+  return { ...rest, flags: flags ?? MessageFlags.Ephemeral };
+}
+
+function bindWizard(ix, ev, msgId) {
+  ev._wizard = {
+    appId: ix.applicationId,
+    token: ix.token,
+    msgId: msgId || ix.message?.id,
+  };
+}
+
+function wizardBody(payload) {
+  const body = { content: payload.content ?? undefined };
+  if (payload.components?.length) {
+    body.components = payload.components.map((c) => (c.toJSON ? c.toJSON() : c));
+  }
+  if (payload.embeds?.length) {
+    body.embeds = payload.embeds.map((e) => (e.toJSON ? e.toJSON() : e));
+  }
+  return body;
+}
+
+async function editWizardMessage(client, wizard, payload) {
+  if (!wizard?.msgId || !wizard?.token) return;
+  await client.rest.patch(`/webhooks/${wizard.appId}/${wizard.token}/messages/${wizard.msgId}`, {
+    body: wizardBody(payload),
+  });
+}
+
+function colorNameFromHex(hex) {
+  const value = hex ?? ALLOWED_COLORS.discord;
+  const entry = Object.entries(ALLOWED_COLORS).find(([, v]) => v === value);
+  return entry ? entry[0] : `#${Number(value).toString(16).padStart(6, '0')}`;
+}
+
+function eventSummaryShort(ev, step) {
+  return `**Crear evento — Paso ${step}/4**\n📌 **${ev.name}** · 🕐 ${ev.time} UTC · 📍 ${ev.location}\n\n`;
+}
+
+function buildVoicePayload(ev) {
+  return {
+    content: `${eventSummaryShort(ev, 1)}¿Canal de voz para el evento?`,
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`${PREFIX}:voice:yes`).setLabel('Canal de voz').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`${PREFIX}:voice:no`).setLabel('Sin canal').setStyle(ButtonStyle.Secondary),
+      ),
+    ],
+  };
+}
+
+function buildEmojiTypePayload(ev) {
+  const voice = ev.voice_channel_id ? `<#${ev.voice_channel_id}>` : 'No';
+  return {
+    content: `${eventSummaryShort(ev, 2)}🔊 Voz: ${voice}\n\nSelecciona el tipo de emoji para los roles:`,
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`${PREFIX}:emoji:system`).setLabel('Emoji del sistema').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`${PREFIX}:emoji:guild`).setLabel('Emoji del servidor').setStyle(ButtonStyle.Secondary),
+      ),
+    ],
+  };
+}
+
+function buildFinalizePayload(ev, opts = {}) {
+  const voice = ev.voice_channel_id ? `<#${ev.voice_channel_id}>` : 'No';
+  const colorName = colorNameFromHex(ev.embed_color);
+  const hasImage = Boolean(ev.image_base64 || ev.has_event_image);
+  let content = `${eventSummaryShort(ev, 4)}**Revisa y publica**\n\n`;
+  content += `🔊 Voz: ${voice}\n`;
+  content += `👥 Roles:\n${rolesSetupSummary(ev)}\n`;
+  content += `🎨 Color: **${colorName}**\n`;
+  content += `🖼️ Imagen: ${hasImage ? '✅ Lista' : '_Sin imagen (opcional)_'}\n`;
+  if (opts.imageWaiting) content += '\n⏳ **Sube una imagen en este canal** (60 s)…\n';
+
+  const colorOptions = Object.entries(ALLOWED_COLORS)
+    .slice(0, 25)
+    .map(([name]) => ({ label: name.charAt(0).toUpperCase() + name.slice(1), value: name }));
+
+  return {
+    content,
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`${PREFIX}:wiz:color`)
+          .setPlaceholder('Color del embed')
+          .addOptions(colorOptions),
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`${PREFIX}:wiz:image`).setLabel('Subir imagen').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`${PREFIX}:setup:publish`)
+          .setLabel('Publicar evento')
+          .setStyle(ButtonStyle.Success)
+          .setDisabled(countEventRoles(ev) < 1),
+        new ButtonBuilder().setCustomId(`${PREFIX}:wiz:back`).setLabel('← Roles').setStyle(ButtonStyle.Secondary),
+      ),
+    ],
+  };
+}
+
+function buildWizardPayload(ev, guild, step, opts = {}) {
+  if (step === 'voice') return buildVoicePayload(ev);
+  if (step === 'emoji-type') return buildEmojiTypePayload(ev);
+  if (step === 'finalize') return buildFinalizePayload(ev, opts);
+  return buildRolesSetupPayload(ev, guild, opts.emojiPage || 0, opts.guildEmojis !== false);
+}
+
+async function wizardAckModal(ix, ev, payload) {
+  await editWizardMessage(ix.client, ev._wizard, payload);
+  await ix.deferReply({ flags: MessageFlags.Ephemeral });
+  await ix.deleteReply();
+}
+
+async function updateWizard(ix, ev, step, opts = {}) {
+  const payload = ep(buildWizardPayload(ev, ix.guild, step, opts));
+  if (!ev._wizard?.msgId) {
+    const msg = await ix.reply({ ...payload, fetchReply: true });
+    bindWizard(ix, ev, msg.id);
+    return;
+  }
+  if (ix.isModalSubmit()) {
+    await wizardAckModal(ix, ev, payload);
+    return;
+  }
+  if (ix.isButton() || ix.isStringSelectMenu() || ix.isChannelSelectMenu()) {
+    try {
+      await ix.update(payload);
+      bindWizard(ix, ev, ix.message.id);
+    } catch {
+      await editWizardMessage(ix.client, ev._wizard, payload);
+      bindWizard(ix, ev, ev._wizard.msgId);
+    }
+    return;
+  }
+  if (ix.deferred || ix.replied) {
+    await ix.editReply(payload);
+    bindWizard(ix, ev, ev._wizard.msgId);
+  } else {
+    await ix.update(payload).catch(async () => {
+      await ix.reply({ ...payload, fetchReply: true }).then((msg) => bindWizard(ix, ev, msg.id));
+    });
+  }
 }
 
 function parseEmbedColor(raw) {
@@ -481,11 +787,11 @@ function emojiSelectOptions(guild, page) {
 }
 
 function buildRolesSetupPayload(ev, guild, emojiPage = 0, guildEmojis = true) {
-  let content = `**Configura roles**\n${rolesSetupSummary(ev)}\n\n`;
+  let content = `${eventSummaryShort(ev, 3)}**Configura roles**\n${rolesSetupSummary(ev)}\n\n`;
   if (guildEmojis) {
-    content += 'Elige emoji del servidor → nombre y cantidad → **Publicar evento**.';
+    content += 'Elige emoji del servidor → nombre y cantidad. Luego **Siguiente** para color e imagen.';
   } else {
-    content += 'Revisa los roles y pulsa **Publicar evento**.';
+    content += 'Revisa los roles y pulsa **Siguiente** para color e imagen.';
   }
   const components = [];
   if (guildEmojis) {
@@ -524,27 +830,18 @@ function buildRolesSetupPayload(ev, guild, emojiPage = 0, guildEmojis = true) {
   components.push(
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId(`${PREFIX}:setup:publish`)
-        .setLabel('Publicar evento')
-        .setStyle(ButtonStyle.Success)
+        .setCustomId(`${PREFIX}:wiz:next`)
+        .setLabel('Siguiente — color e imagen')
+        .setStyle(ButtonStyle.Primary)
         .setDisabled(countEventRoles(ev) < 1),
     ),
   );
-  return { content, components, ephemeral: true };
+  return { content, components };
 }
 
 async function showRolesSetup(ix, ev, emojiPage = 0, guildEmojis = true) {
   await ix.guild.emojis.fetch().catch(() => {});
-  const payload = buildRolesSetupPayload(ev, ix.guild, emojiPage, guildEmojis);
-  if (ix.deferred || ix.replied) {
-    await ix.editReply(payload);
-    return;
-  }
-  try {
-    await ix.update(payload);
-  } catch {
-    await ix.reply(payload);
-  }
+  await updateWizard(ix, ev, 'roles', { emojiPage, guildEmojis });
 }
 
 async function showRoleNameModal(ix) {
@@ -603,7 +900,7 @@ function buildCustomizePayload(messageId) {
       label: name.charAt(0).toUpperCase() + name.slice(1),
       value: name,
     }));
-  return {
+  return ep({
     content: '**Personalizar evento**\nElige un color o sube una imagen en el canal.',
     components: [
       new ActionRowBuilder().addComponents(
@@ -619,40 +916,11 @@ function buildCustomizePayload(messageId) {
           .setStyle(ButtonStyle.Primary),
       ),
     ],
-    ephemeral: true,
-  };
+  });
 }
 
-function emojiTypeSelectPayload() {
-  return {
-    content: 'Selecciona el tipo de emoji para los roles:',
-    components: [
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId(`${PREFIX}:emoji:system`)
-          .setLabel('Emoji del sistema')
-          .setStyle(ButtonStyle.Primary),
-        new ButtonBuilder()
-          .setCustomId(`${PREFIX}:emoji:guild`)
-          .setLabel('Emoji del servidor')
-          .setStyle(ButtonStyle.Secondary),
-      ),
-    ],
-    ephemeral: true,
-  };
-}
-
-async function showEmojiTypeSelect(ix) {
-  const payload = emojiTypeSelectPayload();
-  if (ix.deferred || ix.replied) {
-    await ix.editReply(payload);
-    return;
-  }
-  try {
-    await ix.update(payload);
-  } catch {
-    await ix.reply(payload);
-  }
+async function showEmojiTypeSelect(ix, ev) {
+  await updateWizard(ix, ev, 'emoji-type');
 }
 
 async function applyColorToEvent(client, getDb, messageId, colorName) {
@@ -745,12 +1013,12 @@ const commands = [
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageEvents),
     async run(ix) {
       const list = listGuildEvents(ix.guildId);
-      if (!list.length) return ix.reply({ content: '❌ No hay eventos activos.', ephemeral: true });
+      if (!list.length) return ix.reply(ep({ content: '❌ No hay eventos activos.' }));
       const menu = new StringSelectMenuBuilder()
         .setCustomId(`${PREFIX}:pick:edit`)
         .setPlaceholder('Evento a editar')
         .addOptions(list.slice(0, 25).map((e) => ({ label: e.name.slice(0, 100), value: e.messageId })));
-      await ix.reply({ content: 'Selecciona evento:', components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
+      await ix.reply(ep({ content: 'Selecciona evento:', components: [new ActionRowBuilder().addComponents(menu)] }));
     },
   },
   {
@@ -760,12 +1028,12 @@ const commands = [
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageEvents),
     async run(ix) {
       const list = listGuildEvents(ix.guildId);
-      if (!list.length) return ix.reply({ content: '❌ No hay eventos.', ephemeral: true });
+      if (!list.length) return ix.reply(ep({ content: '❌ No hay eventos.' }));
       const menu = new StringSelectMenuBuilder()
         .setCustomId(`${PREFIX}:pick:delete`)
         .setPlaceholder('Evento a eliminar')
         .addOptions(list.slice(0, 25).map((e) => ({ label: e.name.slice(0, 100), value: e.messageId })));
-      await ix.reply({ content: 'Selecciona evento:', components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
+      await ix.reply(ep({ content: 'Selecciona evento:', components: [new ActionRowBuilder().addComponents(menu)] }));
     },
   },
   {
@@ -778,7 +1046,7 @@ const commands = [
         new ButtonBuilder().setCustomId(`${PREFIX}:tpl:load`).setLabel('Cargar plantilla').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId(`${PREFIX}:tpl:delbtn`).setLabel('Eliminar plantilla').setStyle(ButtonStyle.Danger),
       );
-      await ix.reply({ content: 'Plantillas:', components: [row], ephemeral: true });
+      await ix.reply(ep({ content: 'Plantillas:', components: [row] }));
     },
   },
 ];
@@ -790,8 +1058,12 @@ module.exports = {
   parseTimeUtc,
   buildEmbed,
   listGuildEvents,
+  getGuildEvent,
+  eventToDashboardPayload,
   publishEvent,
   createEventFromDashboard,
+  updateEventFromDashboard,
+  deleteEventFromDashboard,
 
   onGuildRemove(guildId, { getDb }) {
     const id = gid(guildId);
@@ -825,7 +1097,7 @@ module.exports = {
       try {
         ts = parseTimeUtc(time);
       } catch {
-        await ix.reply({ content: '❌ Hora inválida. Usa HH:MM', ephemeral: true });
+        await ix.reply(ep({ content: '❌ Hora inválida. Usa HH:MM' }));
         return true;
       }
       const ev = {
@@ -836,17 +1108,14 @@ module.exports = {
         guild_id: ix.guildId,
         voice_channel_id: null,
         roles: {},
-        embed_color: null,
+        embed_color: ALLOWED_COLORS.discord,
         creator: ix.member?.displayName || ix.user.username,
         event_timestamp: ts,
+        _guildEmojis: true,
       };
       ensureAusente(ev.roles);
       pending.set(key, ev);
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`${PREFIX}:voice:yes`).setLabel('Canal de voz').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(`${PREFIX}:voice:no`).setLabel('Sin canal').setStyle(ButtonStyle.Secondary),
-      );
-      await ix.reply({ content: '¿Canal de voz?', components: [row], ephemeral: true });
+      await updateWizard(ix, ev, 'voice');
       return true;
     }
 
@@ -854,13 +1123,13 @@ module.exports = {
       const key = pendingKey(ix);
       const ev = pending.get(key);
       if (!ev) {
-        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        await ix.reply(ep({ content: 'Sesión expirada.' }));
         return true;
       }
       ev.roles = parseRoles(ix.fields.getTextInputValue('roles'));
+      ev._guildEmojis = false;
       pending.set(key, ev);
-      await ix.reply({ content: '✅ Roles configurados.', ephemeral: true });
-      await ix.followUp(buildRolesSetupPayload(ev, ix.guild, 0, false));
+      await updateWizard(ix, ev, 'roles', { emojiPage: 0, guildEmojis: false });
       return true;
     }
 
@@ -869,20 +1138,20 @@ module.exports = {
       const ev = pending.get(key);
       const pick = pendingRolePick.get(key);
       if (!ev || !pick) {
-        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        await ix.reply(ep({ content: 'Sesión expirada.' }));
         return true;
       }
       const name = ix.fields.getTextInputValue('name').trim();
       const qty = parseInt(ix.fields.getTextInputValue('qty'), 10) || 1;
       if (!name) {
-        await ix.reply({ content: '❌ Escribe el nombre del rol.', ephemeral: true });
+        await ix.deferReply(ep({ content: '❌ Escribe el nombre del rol.' }));
+        await ix.deleteReply();
         return true;
       }
       addRoleToEvent(ev, name, pick.emojiId, pick.emojiName, qty);
       pendingRolePick.delete(key);
       pending.set(key, ev);
-      await ix.reply({ content: `✅ Rol **${name}** añadido.`, ephemeral: true });
-      await ix.followUp(buildRolesSetupPayload(ev, ix.guild, 0));
+      await updateWizard(ix, ev, 'roles', { emojiPage: 0, guildEmojis: true });
       return true;
     }
 
@@ -890,18 +1159,18 @@ module.exports = {
       const key = pendingKey(ix);
       const ev = pending.get(key);
       if (!ev) {
-        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        await ix.reply(ep({ content: 'Sesión expirada.' }));
         return true;
       }
       ev.roles = parseRoles(ix.fields.getTextInputValue('roles'));
       pending.delete(key);
-      await ix.deferReply({ ephemeral: true });
+      await ix.deferReply({ flags: MessageFlags.Ephemeral });
       try {
         const msg = await publishEvent(ix.client, getDb, ev, ix.channel);
-        await ix.editReply({
-          content: '✅ Evento creado. Personaliza imagen y color si quieres:',
+        await ix.editReply(ep({
+          content: '✅ Evento creado.',
           components: publishedFollowupComponents(msg.id),
-        });
+        }));
       } catch (e) {
         log.warn(`Evento: ${e.message}`);
         await ix.editReply({ content: `❌ ${e.message}` });
@@ -913,7 +1182,7 @@ module.exports = {
       const msgId = ix.customId.split(':')[3];
       const ev = cache.get(gid(msgId));
       if (!ev) {
-        await ix.reply({ content: 'Evento no encontrado.', ephemeral: true });
+        await ix.reply(ep({ content: 'Evento no encontrado.' }));
         return true;
       }
       const tpl = { ...ev };
@@ -926,7 +1195,7 @@ module.exports = {
           VALUES (?, ?, ?, ?, ?, ?)
         `)
         .run(randomUUID(), gid(ix.guildId), gid(ix.user.id), ix.fields.getTextInputValue('name'), JSON.stringify(tpl), Date.now() / 1000);
-      await ix.reply({ content: '✅ Plantilla guardada.', ephemeral: true });
+      await ix.reply(ep({ content: '✅ Plantilla guardada.' }));
       return true;
     }
 
@@ -935,7 +1204,7 @@ module.exports = {
       const val = ix.fields.getTextInputValue('val');
       const ev = cache.get(gid(msgId));
       if (!ev) {
-        await ix.reply({ content: 'Evento no encontrado.', ephemeral: true });
+        await ix.reply(ep({ content: 'Evento no encontrado.' }));
         return true;
       }
       if (field === 'name') ev.name = val;
@@ -953,26 +1222,35 @@ module.exports = {
       } catch {
         /* */
       }
-      await ix.reply({ content: '✅ Actualizado.', ephemeral: true });
+      await ix.reply(ep({ content: '✅ Actualizado.' }));
       return true;
     }
 
     if (ix.isButton()) {
       if (ix.customId === `${PREFIX}:voice:yes`) {
+        const ev = pending.get(pendingKey(ix));
+        if (!ev) {
+          await ix.reply(ep({ content: 'Sesión expirada.' }));
+          return true;
+        }
         const sel = new ChannelSelectMenuBuilder()
           .setCustomId(`${PREFIX}:voice:pick`)
           .addChannelTypes(ChannelType.GuildVoice)
           .setMaxValues(1);
-        await ix.update({ content: 'Selecciona canal de voz:', components: [new ActionRowBuilder().addComponents(sel)] });
+        await ix.update({
+          content: `${eventSummaryShort(ev, 1)}Selecciona canal de voz:`,
+          components: [new ActionRowBuilder().addComponents(sel)],
+        });
+        bindWizard(ix, ev, ix.message.id);
         return true;
       }
       if (ix.customId === `${PREFIX}:voice:no`) {
         const ev = pending.get(pendingKey(ix));
         if (!ev) {
-          await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+          await ix.reply(ep({ content: 'Sesión expirada.' }));
           return true;
         }
-        await showEmojiTypeSelect(ix);
+        await showEmojiTypeSelect(ix, ev);
         return true;
       }
       if (ix.customId === `${PREFIX}:emoji:system`) {
@@ -982,10 +1260,48 @@ module.exports = {
       if (ix.customId === `${PREFIX}:emoji:guild`) {
         const ev = pending.get(pendingKey(ix));
         if (!ev) {
-          await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+          await ix.reply(ep({ content: 'Sesión expirada.' }));
           return true;
         }
+        ev._guildEmojis = true;
         await showRolesSetup(ix, ev, 0, true);
+        return true;
+      }
+      if (ix.customId === `${PREFIX}:wiz:next`) {
+        const key = pendingKey(ix);
+        const ev = pending.get(key);
+        if (!ev) {
+          await ix.reply(ep({ content: 'Sesión expirada.' }));
+          return true;
+        }
+        if (countEventRoles(ev) < 1) {
+          await ix.reply(ep({ content: '❌ Añade al menos un rol.' }));
+          return true;
+        }
+        await updateWizard(ix, ev, 'finalize');
+        return true;
+      }
+      if (ix.customId === `${PREFIX}:wiz:back`) {
+        const ev = pending.get(pendingKey(ix));
+        if (!ev) {
+          await ix.reply(ep({ content: 'Sesión expirada.' }));
+          return true;
+        }
+        await updateWizard(ix, ev, 'roles', { emojiPage: 0, guildEmojis: ev._guildEmojis !== false });
+        return true;
+      }
+      if (ix.customId === `${PREFIX}:wiz:image`) {
+        const key = pendingKey(ix);
+        const ev = pending.get(key);
+        if (!ev) {
+          await ix.reply(ep({ content: 'Sesión expirada.' }));
+          return true;
+        }
+        imageUploadWait.set(`${ix.user.id}:${ix.channelId}`, {
+          pendingKey: key,
+          expires: Date.now() + 60_000,
+        });
+        await updateWizard(ix, ev, 'finalize', { imageWaiting: true });
         return true;
       }
       if (ix.customId.startsWith(`${PREFIX}:customize:open:`)) {
@@ -996,29 +1312,27 @@ module.exports = {
       if (ix.customId.startsWith(`${PREFIX}:customize:image:`)) {
         const msgId = ix.customId.split(':')[3];
         if (!cache.has(gid(msgId))) {
-          await ix.reply({ content: '❌ Evento no encontrado.', ephemeral: true });
+          await ix.reply(ep({ content: '❌ Evento no encontrado.' }));
           return true;
         }
         imageUploadWait.set(`${ix.user.id}:${ix.channelId}`, {
           eventMessageId: msgId,
           expires: Date.now() + 60_000,
         });
-        await ix.reply({
-          content: '📎 Sube una **imagen** en este canal en los próximos 60 segundos.',
-          ephemeral: true,
-        });
+        await ix.reply(ep({ content: '📎 Sube una **imagen** en este canal en los próximos 60 segundos.' }));
         return true;
       }
       if (ix.customId === `${PREFIX}:roles:open`) {
         const ev = pending.get(pendingKey(ix));
         if (!ev) {
-          await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+          await ix.reply(ep({ content: 'Sesión expirada.' }));
           return true;
         }
+        bindWizard(ix, ev, ix.message.id);
         if (countEventRoles(ev) > 0) {
-          await showRolesSetup(ix, ev, 0, false);
+          await showRolesSetup(ix, ev, 0, ev._guildEmojis !== false);
         } else {
-          await showEmojiTypeSelect(ix);
+          await showEmojiTypeSelect(ix, ev);
         }
         return true;
       }
@@ -1026,24 +1340,36 @@ module.exports = {
         const key = pendingKey(ix);
         const ev = pending.get(key);
         if (!ev) {
-          await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+          await ix.reply(ep({ content: 'Sesión expirada.' }));
           return true;
         }
         if (countEventRoles(ev) < 1) {
-          await ix.reply({ content: '❌ Añade al menos un rol.', ephemeral: true });
+          await ix.reply(ep({ content: '❌ Añade al menos un rol.' }));
           return true;
         }
-        pending.delete(key);
-        await ix.deferReply({ ephemeral: true });
+        await ix.deferUpdate();
+        bindWizard(ix, ev, ev._wizard?.msgId || ix.message?.id);
         try {
           const msg = await publishEvent(ix.client, getDb, ev, ix.channel);
-          await ix.editReply({
-            content: '✅ Evento creado. Personaliza imagen y color si quieres:',
-            components: publishedFollowupComponents(msg.id),
-          });
+          pending.delete(key);
+          await editWizardMessage(
+            ix.client,
+            ev._wizard,
+            ep({
+              content: `✅ **Evento publicado** en ${ix.channel}`,
+              components: [
+                new ActionRowBuilder().addComponents(
+                  new ButtonBuilder()
+                    .setCustomId(`${PREFIX}:tpl:save:${msg.id}`)
+                    .setLabel('Guardar plantilla')
+                    .setStyle(ButtonStyle.Success),
+                ),
+              ],
+            }),
+          );
         } catch (e) {
           log.warn(`Evento: ${e.message}`);
-          await ix.editReply({ content: `❌ ${e.message}` });
+          await editWizardMessage(ix.client, ev._wizard, ep({ content: `❌ ${e.message}`, components: [] }));
         }
         return true;
       }
@@ -1064,7 +1390,7 @@ module.exports = {
           .prepare('SELECT template_id, template_name FROM evento_templates WHERE guild_id = ? ORDER BY created_at DESC')
           .all(gid(ix.guildId));
         if (!rows.length) {
-          await ix.reply({ content: '❌ Sin plantillas.', ephemeral: true });
+          await ix.reply(ep({ content: '❌ Sin plantillas.' }));
           return true;
         }
         const action = ix.customId.endsWith('load') ? 'load' : 'del';
@@ -1072,7 +1398,7 @@ module.exports = {
           .setCustomId(`${PREFIX}:tpl:${action}`)
           .setPlaceholder('Plantilla')
           .addOptions(rows.slice(0, 25).map((r) => ({ label: r.template_name, value: r.template_id })));
-        await ix.reply({ content: 'Selecciona:', components: [new ActionRowBuilder().addComponents(menu)], ephemeral: true });
+        await ix.reply(ep({ content: 'Selecciona:', components: [new ActionRowBuilder().addComponents(menu)] }));
         return true;
       }
       if (ix.customId.startsWith(`${PREFIX}:edit:`)) {
@@ -1093,12 +1419,25 @@ module.exports = {
     if (ix.isChannelSelectMenu() && ix.customId === `${PREFIX}:voice:pick`) {
       const key = pendingKey(ix);
       const ev = pending.get(key);
-      if (ev) ev.voice_channel_id = ix.channels.first().id;
       if (!ev) {
-        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        await ix.reply(ep({ content: 'Sesión expirada.' }));
         return true;
       }
-      await showEmojiTypeSelect(ix);
+      ev.voice_channel_id = ix.channels.first().id;
+      await showEmojiTypeSelect(ix, ev);
+      return true;
+    }
+
+    if (ix.isStringSelectMenu() && ix.customId === `${PREFIX}:wiz:color`) {
+      const key = pendingKey(ix);
+      const ev = pending.get(key);
+      if (!ev) {
+        await ix.reply(ep({ content: 'Sesión expirada.' }));
+        return true;
+      }
+      const colorName = ix.values[0];
+      ev.embed_color = ALLOWED_COLORS[colorName] ?? ev.embed_color;
+      await updateWizard(ix, ev, 'finalize');
       return true;
     }
 
@@ -1107,9 +1446,9 @@ module.exports = {
       const colorName = ix.values[0];
       try {
         await applyColorToEvent(ix.client, getDb, msgId, colorName);
-        await ix.reply({ content: `✅ Color actualizado: **${colorName}**.`, ephemeral: true });
+        await ix.reply(ep({ content: `✅ Color actualizado: **${colorName}**.` }));
       } catch (e) {
-        await ix.reply({ content: `❌ ${e.message}`, ephemeral: true });
+        await ix.reply(ep({ content: `❌ ${e.message}` }));
       }
       return true;
     }
@@ -1118,23 +1457,23 @@ module.exports = {
       const key = pendingKey(ix);
       const ev = pending.get(key);
       if (!ev) {
-        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        await ix.reply(ep({ content: 'Sesión expirada.' }));
         return true;
       }
       const page = parseInt(ix.customId.split(':').pop(), 10) || 0;
       const val = ix.values[0];
       if (val === '__next__') {
-        await showRolesSetup(ix, ev, page + 1);
+        await showRolesSetup(ix, ev, page + 1, true);
         return true;
       }
       if (val === '__prev__') {
-        await showRolesSetup(ix, ev, Math.max(0, page - 1));
+        await showRolesSetup(ix, ev, Math.max(0, page - 1), true);
         return true;
       }
       await ix.guild.emojis.fetch().catch(() => {});
       const emoji = ix.guild.emojis.cache.get(val);
       if (!emoji) {
-        await ix.reply({ content: '❌ Emoji no encontrado.', ephemeral: true });
+        await ix.reply(ep({ content: '❌ Emoji no encontrado.' }));
         return true;
       }
       pendingRolePick.set(key, { emojiId: emoji.id, emojiName: emoji.name });
@@ -1146,13 +1485,13 @@ module.exports = {
       const key = pendingKey(ix);
       const ev = pending.get(key);
       if (!ev) {
-        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        await ix.reply(ep({ content: 'Sesión expirada.' }));
         return true;
       }
       const rm = ix.values[0];
       if (rm && rm !== 'Ausente') delete ev.roles[rm];
       ensureAusente(ev.roles);
-      await showRolesSetup(ix, ev, 0);
+      await showRolesSetup(ix, ev, 0, ev._guildEmojis !== false);
       return true;
     }
 
@@ -1185,7 +1524,7 @@ module.exports = {
         const msgId = ix.customId.split(':')[2];
         const ev = cache.get(gid(msgId));
         if (!ev || timeRemaining(ev.event_timestamp) === '00:00:00') {
-          await ix.reply({ content: '❌ Evento cerrado.', ephemeral: true });
+          await ix.reply(ep({ content: '❌ Evento cerrado.' }));
           return true;
         }
         const roleKey = ix.values[0];
@@ -1195,13 +1534,13 @@ module.exports = {
         }
         const rd = ev.roles[roleKey];
         if (roleKey !== 'Ausente' && rd.required > 0 && rd.users.length >= rd.required) {
-          await ix.reply({ content: `❌ Rol **${roleKey}** completo.`, ephemeral: true });
+          await ix.reply(ep({ content: `❌ Rol **${roleKey}** completo.` }));
           return true;
         }
         rd.users.push(display);
         saveEvent(getDb, msgId, ev);
         await ix.update({ embeds: [buildEmbed(ev, ix.message)], components: [roleSelectRow(msgId, ev.roles)] });
-        await ix.followUp({ content: roleKey === 'Ausente' ? '✅ Ausente.' : `✅ **${roleKey}**.`, ephemeral: true });
+        await ix.followUp(ep({ content: roleKey === 'Ausente' ? '✅ Ausente.' : `✅ **${roleKey}**.` }));
         return true;
       }
       if (ix.customId === `${PREFIX}:tpl:del`) {
@@ -1249,6 +1588,16 @@ module.exports = {
     imageUploadWait.delete(key);
     const { getDb, log } = ctx;
     try {
+      if (wait.pendingKey) {
+        const ev = pending.get(wait.pendingKey);
+        if (!ev) return false;
+        await attachPendingImage(ev, att);
+        await message.delete().catch(() => {});
+        if (ev._wizard) {
+          await editWizardMessage(message.client, ev._wizard, ep(buildFinalizePayload(ev)));
+        }
+        return true;
+      }
       await applyImageToEventMessage(message.client, getDb, wait.eventMessageId, att);
       await message.delete().catch(() => {});
       const note = await message.channel.send(`✅ <@${message.author.id}> imagen del evento actualizada.`).catch(() => null);

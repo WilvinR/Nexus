@@ -79,11 +79,11 @@ const CATEGORIES = {
     label: 'Eventos',
     emoji: '📅',
     commands: [
-      { name: '/crear_evento', desc: 'Modal → voz → emojis → publicar → color/imagen (Mod).' },
+      { name: '/crear_evento', desc: 'Asistente en un mensaje: voz → roles → color/imagen → publicar (Mod).' },
       { name: '/editar_evento', desc: 'Edita un evento activo (Mod).' },
       { name: '/eliminar_evento', desc: 'Elimina un evento (Mod).' },
       { name: '/plantillas', desc: 'Carga o elimina plantillas de eventos (Mod).' },
-      { name: 'Dashboard web', desc: 'También puedes crear eventos desde el panel → Eventos → Configurar.' },
+      { name: 'Dashboard web', desc: 'Crea, edita y elimina eventos desde el panel → Eventos → Configurar.' },
     ],
   },
   sanciones: {

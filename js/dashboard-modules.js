@@ -765,15 +765,25 @@ function initModuleModals(deps) {
         ? (data.events || [])
             .map(
               (e) =>
-                `<li class="sanc-log-item"><strong>${escapeHtml(e.name)}</strong> — ${escapeHtml(e.time || '')} UTC · ${escapeHtml(e.location || '')}</li>`,
+                `<li class="sanc-log-item evt-active-item">
+                  <div class="evt-active-main">
+                    <strong>${escapeHtml(e.name)}</strong>
+                    <span class="modal-meta">${escapeHtml(e.time || '')} UTC · ${escapeHtml(e.location || '')}</span>
+                  </div>
+                  <div class="evt-active-actions">
+                    <button type="button" class="icon-btn evt-edit" data-id="${escapeHtml(e.messageId)}" title="Editar">✏️</button>
+                    <button type="button" class="icon-btn evt-del" data-id="${escapeHtml(e.messageId)}" data-name="${escapeHtml(e.name)}" title="Eliminar">❌</button>
+                  </div>
+                </li>`,
             )
             .join('')
         : '<li class="modal-meta">No hay eventos activos.</li>';
 
     openModal(
       'Eventos',
-      `<div class="modal-section">
-        <p class="modal-meta">Crea un evento con emojis del servidor. La hora es en UTC (ej. 20:00).</p>
+      `<div class="modal-section" id="evt-form-section">
+        <h3 id="evt-form-heading">Crear evento</h3>
+        <p class="modal-meta" id="evt-form-hint">Crea un evento con emojis del servidor. La hora es en UTC (ej. 20:00).</p>
         ${channelSelect('evt-ch', '', 'Canal de publicación')}
         <label class="form-label">Nombre<input class="form-input" id="evt-name" required></label>
         <label class="form-label">Descripción<textarea class="form-input" id="evt-desc" rows="2"></textarea></label>
@@ -783,6 +793,9 @@ function initModuleModals(deps) {
         <label class="form-label">Color del embed<input class="form-input" id="evt-color" type="color" value="#5865f2"></label>
         <label class="form-label">Imagen del evento (opcional)
           <input class="form-input" id="evt-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+        </label>
+        <label class="form-label hidden" id="evt-rm-image-wrap">
+          <input type="checkbox" id="evt-rm-image"> Quitar imagen actual
         </label>
         <div id="evt-image-preview" class="evt-image-preview hidden"></div>
         <div class="evt-roles-block">
@@ -803,7 +816,8 @@ function initModuleModals(deps) {
           <ul class="evt-role-list" id="evt-role-list"></ul>
         </div>
         <div class="form-actions">
-          <button type="button" class="btn btn-accent" data-act="create-evt">Publicar evento</button>
+          <button type="button" class="btn btn-accent" id="evt-submit-btn" data-act="create-evt">Publicar evento</button>
+          <button type="button" class="btn hidden" id="evt-cancel-edit">Cancelar edición</button>
         </div>
       </div>
       <div class="modal-section">
@@ -816,11 +830,100 @@ function initModuleModals(deps) {
     let pickedEmoji = null;
     let imageBase64 = null;
     let imageName = null;
+    let editingId = null;
 
     const pickedEl = document.getElementById('evt-picked-emoji');
     const roleListEl = document.getElementById('evt-role-list');
     const imageInput = document.getElementById('evt-image');
     const previewEl = document.getElementById('evt-image-preview');
+    const channelSelectEl = document.getElementById('evt-ch');
+    const submitBtn = document.getElementById('evt-submit-btn');
+    const cancelEditBtn = document.getElementById('evt-cancel-edit');
+    const formHeading = document.getElementById('evt-form-heading');
+    const formHint = document.getElementById('evt-form-hint');
+    const rmImageWrap = document.getElementById('evt-rm-image-wrap');
+    const rmImageCheck = document.getElementById('evt-rm-image');
+
+    function roleEmojiHtml(r) {
+      if (r.emojiUrl) {
+        return `<img src="${escapeHtml(r.emojiUrl)}" alt="" width="24" height="24">`;
+      }
+      return `<span class="evt-role-emoji">${escapeHtml(r.emoji || '⭐')}</span>`;
+    }
+
+    function resetCreateForm() {
+      editingId = null;
+      channelSelectEl.disabled = false;
+      formHeading.textContent = 'Crear evento';
+      formHint.textContent = 'Crea un evento con emojis del servidor. La hora es en UTC (ej. 20:00).';
+      submitBtn.textContent = 'Publicar evento';
+      submitBtn.dataset.act = 'create-evt';
+      cancelEditBtn.classList.add('hidden');
+      rmImageWrap.classList.add('hidden');
+      rmImageCheck.checked = false;
+      channelSelectEl.value = '';
+      document.getElementById('evt-name').value = '';
+      document.getElementById('evt-desc').value = '';
+      document.getElementById('evt-time').value = '';
+      document.getElementById('evt-loc').value = '';
+      document.getElementById('evt-voice').value = '';
+      document.getElementById('evt-color').value = '#5865f2';
+      imageInput.value = '';
+      imageBase64 = null;
+      imageName = null;
+      previewEl.classList.add('hidden');
+      previewEl.innerHTML = '';
+      roles.length = 0;
+      pickedEmoji = null;
+      pickedEl.textContent = '—';
+      body.querySelectorAll('.evt-emoji-btn').forEach((b) => b.classList.remove('is-picked'));
+      renderRoles();
+    }
+
+    async function loadEventForEdit(messageId) {
+      const res = await api(`/api/guilds/${modalGuildId}/eventos/${messageId}`);
+      if (!res.ok) return alert((await res.json().catch(() => ({}))).error || 'No se pudo cargar el evento');
+      const { event: ev } = await res.json();
+      editingId = messageId;
+      channelSelectEl.value = ev.channelId || '';
+      channelSelectEl.disabled = true;
+      document.getElementById('evt-name').value = ev.name || '';
+      document.getElementById('evt-desc').value = ev.description || '';
+      document.getElementById('evt-time').value = ev.time || '';
+      document.getElementById('evt-loc').value = ev.location || '';
+      document.getElementById('evt-voice').value = ev.voiceChannelId || '';
+      document.getElementById('evt-color').value = ev.embedColor || '#5865f2';
+      imageInput.value = '';
+      imageBase64 = null;
+      imageName = null;
+      rmImageCheck.checked = false;
+      rmImageWrap.classList.toggle('hidden', !ev.hasImage);
+      if (ev.imageUrl) {
+        previewEl.innerHTML = `<img src="${escapeHtml(ev.imageUrl)}" alt="Imagen actual">`;
+        previewEl.classList.remove('hidden');
+      } else {
+        previewEl.classList.add('hidden');
+        previewEl.innerHTML = '';
+      }
+      roles.length = 0;
+      for (const r of ev.roles || []) {
+        roles.push({
+          name: r.name,
+          emojiId: r.emojiId,
+          emojiName: r.emojiName,
+          emoji: r.emoji,
+          emojiUrl: r.emojiId ? `https://cdn.discordapp.com/emojis/${r.emojiId}.webp?size=48` : '',
+          required: r.required || 1,
+        });
+      }
+      renderRoles();
+      formHeading.textContent = 'Editar evento';
+      formHint.textContent = 'Los cambios se aplican al mensaje en Discord. Las inscripciones se conservan si el rol sigue igual.';
+      submitBtn.textContent = 'Guardar cambios';
+      submitBtn.dataset.act = 'save-evt';
+      cancelEditBtn.classList.remove('hidden');
+      document.getElementById('evt-form-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 
     function renderRoles() {
       roleListEl.innerHTML = roles.length
@@ -828,7 +931,7 @@ function initModuleModals(deps) {
             .map(
               (r, i) =>
                 `<li class="evt-role-item">
-                  <img src="${escapeHtml(r.emojiUrl || '')}" alt="" width="24" height="24">
+                  ${roleEmojiHtml(r)}
                   <span>${escapeHtml(r.name)}</span>
                   <span class="evt-role-qty-label">×${r.required}</span>
                   <button type="button" class="icon-btn" data-rm="${i}" title="Quitar rol">❌</button>
@@ -896,8 +999,10 @@ function initModuleModals(deps) {
       if (!file) {
         imageBase64 = null;
         imageName = null;
-        previewEl.classList.add('hidden');
-        previewEl.innerHTML = '';
+        if (!editingId) {
+          previewEl.classList.add('hidden');
+          previewEl.innerHTML = '';
+        }
         return;
       }
       if (file.size > 7 * 1024 * 1024) {
@@ -905,6 +1010,7 @@ function initModuleModals(deps) {
         imageInput.value = '';
         return;
       }
+      rmImageCheck.checked = false;
       const reader = new FileReader();
       reader.onload = () => {
         const dataUrl = reader.result;
@@ -916,7 +1022,27 @@ function initModuleModals(deps) {
       reader.readAsDataURL(file);
     });
 
-    body.querySelector('[data-act="create-evt"]').addEventListener('click', async () => {
+    cancelEditBtn.addEventListener('click', resetCreateForm);
+
+    body.querySelectorAll('.evt-edit').forEach((btn) => {
+      btn.addEventListener('click', () => loadEventForEdit(btn.dataset.id));
+    });
+
+    body.querySelectorAll('.evt-del').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const name = btn.dataset.name || 'este evento';
+        if (!confirm(`¿Eliminar "${name}"? Se borrará el mensaje en Discord.`)) return;
+        const res = await api(`/api/guilds/${modalGuildId}/eventos/${btn.dataset.id}`, { method: 'DELETE' });
+        if (res.ok) {
+          if (editingId === btn.dataset.id) resetCreateForm();
+          openEventos();
+        } else {
+          alert((await res.json().catch(() => ({}))).error || 'No se pudo eliminar');
+        }
+      });
+    });
+
+    submitBtn.addEventListener('click', async () => {
       const channelId = document.getElementById('evt-ch').value;
       const name = document.getElementById('evt-name').value.trim();
       const description = document.getElementById('evt-desc').value.trim();
@@ -928,19 +1054,40 @@ function initModuleModals(deps) {
       if (!name || !time || !location) return alert('Nombre, hora y lugar son obligatorios.');
       if (!roles.length) return alert('Añade al menos un rol con emoji.');
       const payload = {
-        channelId,
         name,
         description,
         time,
         location,
         voiceChannelId,
         embedColor,
-        roles,
+        roles: roles.map((r) => ({
+          name: r.name,
+          emojiId: r.emojiId || null,
+          emojiName: r.emojiName || null,
+          emoji: r.emojiId ? null : r.emoji || '⭐',
+          required: r.required,
+        })),
       };
       if (imageBase64) {
         payload.imageBase64 = imageBase64;
         payload.imageName = imageName;
       }
+      if (editingId) {
+        if (rmImageCheck.checked) payload.removeImage = true;
+        const res = await api(`/api/guilds/${modalGuildId}/eventos/${editingId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          alert('Evento actualizado en Discord.');
+          openEventos();
+        } else {
+          alert((await res.json().catch(() => ({}))).error || 'Error al guardar');
+        }
+        return;
+      }
+      payload.channelId = channelId;
       const res = await api(`/api/guilds/${modalGuildId}/eventos`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

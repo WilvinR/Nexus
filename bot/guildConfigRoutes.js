@@ -14,7 +14,14 @@ const {
   clearRecordWithNotify,
   MAX_STRIKES,
 } = require('./sanciones');
-const { listGuildEvents, createEventFromDashboard } = require('./eventos');
+const {
+  listGuildEvents,
+  getGuildEvent,
+  eventToDashboardPayload,
+  createEventFromDashboard,
+  updateEventFromDashboard,
+  deleteEventFromDashboard,
+} = require('./eventos');
 
 function gid(id) {
   return String(id);
@@ -810,6 +817,14 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     res.json({ ok: true, events });
   });
 
+  app.get('/api/guilds/:guildId/eventos/:messageId', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const ev = getGuildEvent(ctx.guildId, req.params.messageId);
+    if (!ev) return res.status(404).json({ error: 'Evento no encontrado' });
+    res.json({ ok: true, event: eventToDashboardPayload(ev) });
+  });
+
   app.post('/api/guilds/:guildId/eventos', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
@@ -835,6 +850,40 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
       res.json({ ok: true, messageId: msg.id, channelId: msg.channelId });
     } catch (e) {
       res.status(400).json({ error: e.message || 'No se pudo crear el evento' });
+    }
+  });
+
+  app.patch('/api/guilds/:guildId/eventos/:messageId', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    if (req.body?.voiceChannelId) {
+      const vc = ctx.guild.channels.cache.get(String(req.body.voiceChannelId));
+      if (!vc || vc.type !== ChannelType.GuildVoice) {
+        return res.status(400).json({ error: 'Canal de voz no válido' });
+      }
+    }
+    try {
+      const msg = await updateEventFromDashboard(
+        client,
+        getDb,
+        ctx.guild,
+        req.params.messageId,
+        req.body,
+      );
+      res.json({ ok: true, messageId: msg.id, channelId: msg.channelId });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo actualizar el evento' });
+    }
+  });
+
+  app.delete('/api/guilds/:guildId/eventos/:messageId', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    try {
+      await deleteEventFromDashboard(client, getDb, ctx.guildId, req.params.messageId);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo eliminar el evento' });
     }
   });
 }
