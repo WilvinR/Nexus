@@ -133,15 +133,17 @@ function rolesDisplay(roles) {
     if (key === 'Ausente') continue;
     const assigned = (data.users || []).length;
     const req = data.required || 0;
-    out += `**★-${toBoldSans(data.name || key)}** ${formatRoleEmoji(data)} (${assigned}/${req})\n`;
+    out += `★-${toBoldSans(data.name || key)} ${formatRoleEmoji(data)} (${assigned}/${req})\n`;
     if (data.users?.length) out += `${data.users.join('\n')}\n`;
   }
   const aus = roles.Ausente;
   if (aus?.users?.length) {
-    out += `\n**★-${toBoldSans('Ausente')}** ${formatRoleEmoji(aus)} (${aus.users.length}/0)\n${aus.users.join('\n')}\n`;
+    out += `\n★-${toBoldSans('Ausente')} ${formatRoleEmoji(aus)} (${aus.users.length}/0)\n${aus.users.join('\n')}\n`;
   }
   return out.trim() || 'No roles asignados.';
 }
+
+const EVENT_IMAGE_FILE = 'evento-banner.png';
 
 function buildEmbed(ev) {
   const color = ev.embed_color || 0x5865f2;
@@ -152,8 +154,6 @@ function buildEmbed(ev) {
     .setTitle(toSerifBold(title))
     .setDescription(desc ? `**${desc}**` : '*Sin descripción*')
     .setColor(color);
-
-  if (ev.image_url) embed.setImage(ev.image_url);
 
   const ts = ev.event_timestamp || 0;
   embed.addFields(
@@ -180,10 +180,14 @@ function buildEmbed(ev) {
     .filter(([k]) => k !== 'Ausente')
     .reduce((s, [, d]) => s + (d.users?.length || 0), 0);
   embed.addFields({
-    name: `👥 Roles  •  ${inscritos} inscrito${inscritos !== 1 ? 's' : ''}`,
+    name: `👥 Roles • ${inscritos} inscrito${inscritos !== 1 ? 's' : ''}`,
     value: rolesDisplay(roles),
     inline: false,
   });
+
+  if (ev.image_url) embed.setImage(ev.image_url);
+  else if (ev.image_attachment) embed.setImage(`attachment://${EVENT_IMAGE_FILE}`);
+
   if (ev.creator) embed.setFooter({ text: `Evento organizado por ${ev.creator}` });
   return embed;
 }
@@ -269,18 +273,17 @@ function startTimer(client, getDb, messageId) {
 }
 
 async function publishEvent(client, getDb, ev, channel) {
-  const embed = buildEmbed(ev);
   const files = [];
-  if (ev.image_base64) {
-    const imageName = ev.image_name || 'evento.png';
-    files.push(new AttachmentBuilder(Buffer.from(ev.image_base64, 'base64'), { name: imageName }));
-    embed.setImage(`attachment://${imageName}`);
-  } else if (ev.image_url) {
-    embed.setImage(ev.image_url);
+  const hasUpload = Boolean(ev.image_base64);
+  if (hasUpload) {
+    files.push(new AttachmentBuilder(Buffer.from(ev.image_base64, 'base64'), { name: EVENT_IMAGE_FILE }));
   }
+  delete ev.image_base64;
+  delete ev.image_name;
 
+  const draft = { ...ev, image_url: hasUpload ? null : ev.image_url || null, image_attachment: hasUpload };
   const payload = {
-    embeds: [embed],
+    embeds: [buildEmbed(draft)],
     components: [roleSelectRow('pending', ev.roles)],
   };
   if (files.length) payload.files = files;
@@ -288,8 +291,7 @@ async function publishEvent(client, getDb, ev, channel) {
   const msg = await channel.send(payload);
   const att = msg.attachments.first();
   if (att?.url) ev.image_url = att.url;
-  delete ev.image_base64;
-  delete ev.image_name;
+  delete ev.image_attachment;
 
   ev.message_id = msg.id;
   ev.channel_id = channel.id;
