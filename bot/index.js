@@ -346,6 +346,14 @@ client.on(Events.GuildMemberAdd, (member) => {
   welcomeNewMember(member).catch(() => {});
 });
 
+client.on(Events.MessageCreate, async (message) => {
+  if (!message.guildId) return;
+  const c = ctx();
+  for (const m of modulos) {
+    if (m.onMessageCreate && (await m.onMessageCreate(message, c))) return;
+  }
+});
+
 client.on(Events.InteractionCreate, async (ix) => {
   try {
     if (!ix.guildId) return;

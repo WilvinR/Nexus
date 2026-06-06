@@ -787,13 +787,18 @@ function initModuleModals(deps) {
         <div id="evt-image-preview" class="evt-image-preview hidden"></div>
         <div class="evt-roles-block">
           <h3 class="evt-roles-title">Roles del evento</h3>
-          <p class="modal-meta">Elige un emoji, pon nombre y cantidad, luego añade el rol.</p>
+          <p class="modal-meta">Elige emoji → nombre y cantidad → <strong>Añadir rol</strong>. Quita roles con ❌ o limpia la lista.</p>
+          <input class="form-input" id="evt-emoji-search" type="search" placeholder="Buscar emoji por nombre…" autocomplete="off">
           <div class="evt-emoji-grid" id="evt-emoji-grid">${emojiGrid}</div>
           <div class="evt-role-form">
             <span id="evt-picked-emoji" class="evt-picked-emoji">—</span>
             <input class="form-input" id="evt-role-name" placeholder="Nombre del rol" maxlength="80">
             <input class="form-input evt-role-qty" id="evt-role-qty" type="number" min="1" max="99" value="1" placeholder="Cant.">
             <button type="button" class="btn" id="evt-add-role">Añadir rol</button>
+          </div>
+          <div class="evt-role-actions">
+            <button type="button" class="btn btn-sm" id="evt-clear-roles">Limpiar roles</button>
+            <span class="modal-meta" id="evt-role-count">0 roles</span>
           </div>
           <ul class="evt-role-list" id="evt-role-list"></ul>
         </div>
@@ -826,11 +831,13 @@ function initModuleModals(deps) {
                   <img src="${escapeHtml(r.emojiUrl || '')}" alt="" width="24" height="24">
                   <span>${escapeHtml(r.name)}</span>
                   <span class="evt-role-qty-label">×${r.required}</span>
-                  <button type="button" class="icon-btn" data-rm="${i}" title="Quitar">❌</button>
+                  <button type="button" class="icon-btn" data-rm="${i}" title="Quitar rol">❌</button>
                 </li>`,
             )
             .join('')
-        : '<li class="modal-meta">Sin roles aún.</li>';
+        : '<li class="modal-meta">Sin roles aún — añade al menos uno.</li>';
+      const countEl = document.getElementById('evt-role-count');
+      if (countEl) countEl.textContent = `${roles.length} rol${roles.length !== 1 ? 'es' : ''}`;
     }
 
     body.querySelectorAll('.evt-emoji-btn').forEach((btn) => {
@@ -840,6 +847,25 @@ function initModuleModals(deps) {
         pickedEmoji = { id: btn.dataset.id, name: btn.dataset.name, url: btn.querySelector('img')?.src || '' };
         pickedEl.innerHTML = `<img src="${escapeHtml(pickedEmoji.url)}" alt="" width="28" height="28">`;
       });
+    });
+
+    const emojiSearch = document.getElementById('evt-emoji-search');
+    const emojiGridEl = document.getElementById('evt-emoji-grid');
+    if (emojiSearch && emojiGridEl) {
+      emojiSearch.addEventListener('input', () => {
+        const q = emojiSearch.value.trim().toLowerCase();
+        emojiGridEl.querySelectorAll('.evt-emoji-btn').forEach((btn) => {
+          const name = (btn.dataset.name || '').toLowerCase();
+          btn.classList.toggle('hidden', Boolean(q && !name.includes(q)));
+        });
+      });
+    }
+
+    document.getElementById('evt-clear-roles').addEventListener('click', () => {
+      if (!roles.length) return;
+      if (!confirm('¿Quitar todos los roles del evento?')) return;
+      roles.length = 0;
+      renderRoles();
     });
 
     document.getElementById('evt-add-role').addEventListener('click', () => {

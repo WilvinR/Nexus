@@ -1925,6 +1925,22 @@ footer {
   margin-bottom: 10px;
 }
 
+.evt-role-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+#evt-emoji-search {
+  margin-bottom: 8px;
+}
+
+.evt-emoji-btn.hidden {
+  display: none;
+}
+
 .evt-picked-emoji {
   display: inline-flex;
   align-items: center;

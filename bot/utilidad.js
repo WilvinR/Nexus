@@ -79,7 +79,7 @@ const CATEGORIES = {
     label: 'Eventos',
     emoji: '📅',
     commands: [
-      { name: '/crear_evento', desc: 'Crea un evento con roles e inscripción (Mod).' },
+      { name: '/crear_evento', desc: 'Modal → voz → emojis → publicar → color/imagen (Mod).' },
       { name: '/editar_evento', desc: 'Edita un evento activo (Mod).' },
       { name: '/eliminar_evento', desc: 'Elimina un evento (Mod).' },
       { name: '/plantillas', desc: 'Carga o elimina plantillas de eventos (Mod).' },

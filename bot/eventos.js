@@ -17,8 +17,31 @@ const { randomUUID } = require('crypto');
 
 const PREFIX = 'evt';
 const pending = new Map();
+const pendingRolePick = new Map();
+const imageUploadWait = new Map();
 const cache = new Map();
 const timers = new Map();
+
+const ALLOWED_COLORS = {
+  rojo: 0xff0000,
+  verde: 0x008000,
+  azul: 0x0000ff,
+  amarillo: 0xffff00,
+  naranja: 0xffa500,
+  morado: 0x800080,
+  rosa: 0xffc0cb,
+  turquesa: 0x40e0d0,
+  celeste: 0x87ceeb,
+  gris: 0x808080,
+  violeta: 0xee82ee,
+  cian: 0x00ffff,
+  magenta: 0xff00ff,
+  lima: 0x32cd32,
+  teal: 0x008080,
+  coral: 0xff7f50,
+  gold: 0xffd700,
+  discord: 0x5865f2,
+};
 
 function gid(id) {
   return String(id);
@@ -133,12 +156,12 @@ function rolesDisplay(roles) {
     if (key === 'Ausente') continue;
     const assigned = (data.users || []).length;
     const req = data.required || 0;
-    out += `★-${toBoldSans(data.name || key)} ${formatRoleEmoji(data)} (${assigned}/${req})\n`;
+    out += `**★-${toBoldSans(String(data.name || key).charAt(0).toUpperCase() + String(data.name || key).slice(1))}** ${formatRoleEmoji(data)} (${assigned}/${req})\n`;
     if (data.users?.length) out += `${data.users.join('\n')}\n`;
   }
   const aus = roles.Ausente;
   if (aus?.users?.length) {
-    out += `\n★-${toBoldSans('Ausente')} ${formatRoleEmoji(aus)} (${aus.users.length}/0)\n${aus.users.join('\n')}\n`;
+    out += `\n**★-${toBoldSans('Ausente')}** ${formatRoleEmoji(aus)} (${aus.users.length}/0)\n${aus.users.join('\n')}\n`;
   }
   return out.trim() || 'No roles asignados.';
 }
@@ -171,7 +194,7 @@ function resolveEmbedImage(ev, message) {
 }
 
 function buildEmbed(ev, message) {
-  const color = ev.embed_color || 0x5865f2;
+  const color = ev.embed_color ?? 0x5865f2;
   const desc = (ev.description || '').trim();
   const rawName = String(ev.name || 'Evento').trim();
   const title = rawName.charAt(0).toUpperCase() + rawName.slice(1);
@@ -197,7 +220,7 @@ function buildEmbed(ev, message) {
       value: ev.voice_channel_id ? `<#${ev.voice_channel_id}>` : 'No especificado',
       inline: true,
     },
-    { name: '📍 Lugar', value: toBoldSans(ev.location || 'No especificado'), inline: true },
+    { name: '📍 Lugar', value: ev.location || 'No especificado', inline: true },
   );
 
   const roles = ev.roles || {};
@@ -205,7 +228,7 @@ function buildEmbed(ev, message) {
     .filter(([k]) => k !== 'Ausente')
     .reduce((s, [, d]) => s + (d.users?.length || 0), 0);
   embed.addFields({
-    name: `👥 Roles • ${inscritos} inscrito${inscritos !== 1 ? 's' : ''}`,
+    name: `👥 Roles  •  ${inscritos} inscrito${inscritos !== 1 ? 's' : ''}`,
     value: rolesDisplay(roles),
     inline: false,
   });
@@ -380,10 +403,301 @@ async function createEventFromDashboard(client, getDb, guild, channelId, body, c
   return publishEvent(client, getDb, ev, channel);
 }
 
-async function askRolesModal(ix) {
+function pendingKey(ix) {
+  return `${ix.guildId}:${ix.user.id}`;
+}
+
+function parseEmbedColor(raw) {
+  let s = String(raw || '').trim();
+  if (!s) return null;
+  if (s.startsWith('#')) s = s.slice(1);
+  if (!/^[0-9a-fA-F]{6}$/.test(s)) return null;
+  return parseInt(s, 16);
+}
+
+async function downloadAttachment(attachment) {
+  const res = await fetch(attachment.url);
+  if (!res.ok) throw new Error('No se pudo descargar la imagen adjunta');
+  const buf = Buffer.from(await res.arrayBuffer());
+  return { base64: buf.toString('base64'), name: attachment.name || 'evento.png' };
+}
+
+function ensureAusente(roles) {
+  if (!roles.Ausente) {
+    roles.Ausente = { emoji: '❌', users: [], required: 0, name: 'Ausente' };
+  }
+  return roles;
+}
+
+function addRoleToEvent(ev, name, emojiId, emojiName, required) {
+  if (!ev.roles) ev.roles = {};
+  ensureAusente(ev.roles);
+  const key = roleKey(name, ev.roles);
+  ev.roles[key] = {
+    name,
+    emojiId: String(emojiId),
+    emojiName: String(emojiName),
+    emoji: null,
+    users: [],
+    required: Math.max(1, parseInt(required, 10) || 1),
+  };
+  return key;
+}
+
+function countEventRoles(ev) {
+  return Object.keys(ev.roles || {}).filter((k) => k !== 'Ausente').length;
+}
+
+function rolesSetupSummary(ev) {
+  const lines = [];
+  for (const [key, data] of Object.entries(ev.roles || {})) {
+    if (key === 'Ausente') continue;
+    lines.push(`• **${data.name || key}** ${formatRoleEmoji(data)} ×${data.required || 0}`);
+  }
+  return lines.length ? lines.join('\n') : '_Sin roles — añade al menos uno._';
+}
+
+function emojiSelectOptions(guild, page) {
+  const all = [...guild.emojis.cache.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const slots = 25;
+  const chunkSize = slots - 2;
+  const start = page * chunkSize;
+  const chunk = all.slice(start, start + chunkSize);
+  const opts = [];
+  if (page > 0) {
+    opts.push({ label: '← Página anterior', value: '__prev__', emoji: '⬅️' });
+  }
+  for (const e of chunk) {
+    opts.push({
+      label: e.name.slice(0, 100),
+      value: e.id,
+      emoji: { id: e.id, name: e.name },
+    });
+  }
+  if (start + chunkSize < all.length) {
+    opts.push({ label: 'Más emojis →', value: '__next__', emoji: '➡️' });
+  }
+  return { options: opts.slice(0, 25), total: all.length };
+}
+
+function buildRolesSetupPayload(ev, guild, emojiPage = 0, guildEmojis = true) {
+  let content = `**Configura roles**\n${rolesSetupSummary(ev)}\n\n`;
+  if (guildEmojis) {
+    content += 'Elige emoji del servidor → nombre y cantidad → **Publicar evento**.';
+  } else {
+    content += 'Revisa los roles y pulsa **Publicar evento**.';
+  }
+  const components = [];
+  if (guildEmojis) {
+    const { options, total } = emojiSelectOptions(guild, emojiPage);
+    if (total > 0 && options.length) {
+      components.push(
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`${PREFIX}:setup:emoji:${emojiPage}`)
+            .setPlaceholder('Emojis del servidor')
+            .addOptions(options),
+        ),
+      );
+    } else {
+      content += '\n\n⚠️ Sin emojis personalizados. Usa **Emoji del sistema**.';
+    }
+  }
+  const removable = Object.entries(ev.roles || {}).filter(([k]) => k !== 'Ausente');
+  if (removable.length) {
+    components.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`${PREFIX}:setup:remove`)
+          .setPlaceholder('Quitar un rol')
+          .addOptions(
+            removable.slice(0, 25).map(([key, data]) => ({
+              label: (data.name || key).slice(0, 100),
+              value: key,
+              emoji: selectMenuEmoji(data),
+              description: `×${data.required || 0}`,
+            })),
+          ),
+      ),
+    );
+  }
+  components.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`${PREFIX}:setup:publish`)
+        .setLabel('Publicar evento')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(countEventRoles(ev) < 1),
+    ),
+  );
+  return { content, components, ephemeral: true };
+}
+
+async function showRolesSetup(ix, ev, emojiPage = 0, guildEmojis = true) {
+  await ix.guild.emojis.fetch().catch(() => {});
+  const payload = buildRolesSetupPayload(ev, ix.guild, emojiPage, guildEmojis);
+  if (ix.deferred || ix.replied) {
+    await ix.editReply(payload);
+    return;
+  }
+  try {
+    await ix.update(payload);
+  } catch {
+    await ix.reply(payload);
+  }
+}
+
+async function showRoleNameModal(ix) {
   const modal = new ModalBuilder()
-    .setCustomId(`${PREFIX}:roles`)
-    .setTitle('Roles del evento')
+    .setCustomId(`${PREFIX}:setup:role`)
+    .setTitle('Nuevo rol')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('name')
+          .setLabel('Nombre del rol')
+          .setPlaceholder('Tanque, Healer, DPS…')
+          .setStyle(TextInputStyle.Short)
+          .setMaxLength(80)
+          .setRequired(true),
+      ),
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('qty')
+          .setLabel('Cantidad')
+          .setPlaceholder('1')
+          .setStyle(TextInputStyle.Short)
+          .setRequired(true),
+      ),
+    );
+  await ix.showModal(modal);
+}
+
+async function attachPendingImage(ev, attachment) {
+  if (!attachment?.url) return;
+  const dl = await downloadAttachment(attachment);
+  ev.image_base64 = dl.base64;
+  ev.image_name = dl.name;
+  ev.has_event_image = true;
+}
+
+function publishedFollowupComponents(messageId) {
+  return [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`${PREFIX}:customize:open:${messageId}`)
+        .setLabel('Personalizar imagen y color')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId(`${PREFIX}:tpl:save:${messageId}`)
+        .setLabel('Guardar plantilla')
+        .setStyle(ButtonStyle.Success),
+    ),
+  ];
+}
+
+function buildCustomizePayload(messageId) {
+  const colorOptions = Object.entries(ALLOWED_COLORS)
+    .slice(0, 25)
+    .map(([name]) => ({
+      label: name.charAt(0).toUpperCase() + name.slice(1),
+      value: name,
+    }));
+  return {
+    content: '**Personalizar evento**\nElige un color o sube una imagen en el canal.',
+    components: [
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`${PREFIX}:customize:color:${messageId}`)
+          .setPlaceholder('Color del embed')
+          .addOptions(colorOptions),
+      ),
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`${PREFIX}:customize:image:${messageId}`)
+          .setLabel('Subir imagen')
+          .setStyle(ButtonStyle.Primary),
+      ),
+    ],
+    ephemeral: true,
+  };
+}
+
+function emojiTypeSelectPayload() {
+  return {
+    content: 'Selecciona el tipo de emoji para los roles:',
+    components: [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`${PREFIX}:emoji:system`)
+          .setLabel('Emoji del sistema')
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`${PREFIX}:emoji:guild`)
+          .setLabel('Emoji del servidor')
+          .setStyle(ButtonStyle.Secondary),
+      ),
+    ],
+    ephemeral: true,
+  };
+}
+
+async function showEmojiTypeSelect(ix) {
+  const payload = emojiTypeSelectPayload();
+  if (ix.deferred || ix.replied) {
+    await ix.editReply(payload);
+    return;
+  }
+  try {
+    await ix.update(payload);
+  } catch {
+    await ix.reply(payload);
+  }
+}
+
+async function applyColorToEvent(client, getDb, messageId, colorName) {
+  const ev = cache.get(gid(messageId));
+  if (!ev) throw new Error('Evento no encontrado');
+  const hex = ALLOWED_COLORS[colorName];
+  if (!hex) throw new Error('Color no válido');
+  ev.embed_color = hex;
+  saveEvent(getDb, messageId, ev);
+  const ch = await client.channels.fetch(ev.channel_id);
+  const msg = await ch.messages.fetch(messageId);
+  await refreshEventMessage(msg, ev, messageId);
+}
+
+async function applyImageToEventMessage(client, getDb, messageId, attachment) {
+  const ev = cache.get(gid(messageId));
+  if (!ev) throw new Error('Evento no encontrado');
+  const dl = await downloadAttachment(attachment);
+  const meta = imageUploadFromBase64(dl.base64, dl.name);
+  const ch = await client.channels.fetch(ev.channel_id);
+  const msg = await ch.messages.fetch(messageId);
+  const file = new AttachmentBuilder(meta.buffer, { name: meta.filename });
+  ev.has_event_image = true;
+  ev.image_file = meta.filename;
+  const draft = { ...ev, image_url: null };
+  await msg.edit({
+    embeds: [buildEmbed(draft)],
+    files: [file],
+    components: [roleSelectRow(messageId, ev.roles)],
+  });
+  const updated = await ch.messages.fetch(messageId);
+  const att = updated.attachments.find((a) => a.name === meta.filename);
+  if (att?.url) ev.image_url = att.url;
+  saveEvent(getDb, messageId, ev);
+  await msg.edit({
+    embeds: [buildEmbed(ev, updated)],
+    components: [roleSelectRow(messageId, ev.roles)],
+    attachments: [],
+  });
+}
+
+async function showSystemRolesModal(ix) {
+  const modal = new ModalBuilder()
+    .setCustomId(`${PREFIX}:setup:system`)
+    .setTitle('Roles con emojis del sistema')
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder()
@@ -505,6 +819,7 @@ module.exports = {
     }
 
     if (ix.isModalSubmit() && ix.customId === `${PREFIX}:create`) {
+      const key = pendingKey(ix);
       const time = ix.fields.getTextInputValue('time');
       let ts;
       try {
@@ -513,18 +828,20 @@ module.exports = {
         await ix.reply({ content: '❌ Hora inválida. Usa HH:MM', ephemeral: true });
         return true;
       }
-      pending.set(`${ix.guildId}:${ix.user.id}`, {
+      const ev = {
         name: ix.fields.getTextInputValue('name'),
         description: ix.fields.getTextInputValue('desc'),
         time,
         location: ix.fields.getTextInputValue('location'),
         guild_id: ix.guildId,
         voice_channel_id: null,
-        roles: { Ausente: { emoji: '❌', users: [], required: 0, name: 'Ausente' } },
+        roles: {},
         embed_color: null,
         creator: ix.member?.displayName || ix.user.username,
         event_timestamp: ts,
-      });
+      };
+      ensureAusente(ev.roles);
+      pending.set(key, ev);
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`${PREFIX}:voice:yes`).setLabel('Canal de voz').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId(`${PREFIX}:voice:no`).setLabel('Sin canal').setStyle(ButtonStyle.Secondary),
@@ -533,21 +850,58 @@ module.exports = {
       return true;
     }
 
-    if (ix.isModalSubmit() && ix.customId === `${PREFIX}:roles`) {
-      const ev = pending.get(`${ix.guildId}:${ix.user.id}`);
+    if (ix.isModalSubmit() && ix.customId === `${PREFIX}:setup:system`) {
+      const key = pendingKey(ix);
+      const ev = pending.get(key);
       if (!ev) {
         await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
         return true;
       }
       ev.roles = parseRoles(ix.fields.getTextInputValue('roles'));
-      pending.delete(`${ix.guildId}:${ix.user.id}`);
+      pending.set(key, ev);
+      await ix.reply({ content: '✅ Roles configurados.', ephemeral: true });
+      await ix.followUp(buildRolesSetupPayload(ev, ix.guild, 0, false));
+      return true;
+    }
+
+    if (ix.isModalSubmit() && ix.customId === `${PREFIX}:setup:role`) {
+      const key = pendingKey(ix);
+      const ev = pending.get(key);
+      const pick = pendingRolePick.get(key);
+      if (!ev || !pick) {
+        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        return true;
+      }
+      const name = ix.fields.getTextInputValue('name').trim();
+      const qty = parseInt(ix.fields.getTextInputValue('qty'), 10) || 1;
+      if (!name) {
+        await ix.reply({ content: '❌ Escribe el nombre del rol.', ephemeral: true });
+        return true;
+      }
+      addRoleToEvent(ev, name, pick.emojiId, pick.emojiName, qty);
+      pendingRolePick.delete(key);
+      pending.set(key, ev);
+      await ix.reply({ content: `✅ Rol **${name}** añadido.`, ephemeral: true });
+      await ix.followUp(buildRolesSetupPayload(ev, ix.guild, 0));
+      return true;
+    }
+
+    if (ix.isModalSubmit() && ix.customId === `${PREFIX}:roles`) {
+      const key = pendingKey(ix);
+      const ev = pending.get(key);
+      if (!ev) {
+        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        return true;
+      }
+      ev.roles = parseRoles(ix.fields.getTextInputValue('roles'));
+      pending.delete(key);
       await ix.deferReply({ ephemeral: true });
       try {
         const msg = await publishEvent(ix.client, getDb, ev, ix.channel);
-        const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`${PREFIX}:tpl:save:${msg.id}`).setLabel('Guardar plantilla').setStyle(ButtonStyle.Success),
-        );
-        await ix.editReply({ content: '✅ Evento creado.', components: [row] });
+        await ix.editReply({
+          content: '✅ Evento creado. Personaliza imagen y color si quieres:',
+          components: publishedFollowupComponents(msg.id),
+        });
       } catch (e) {
         log.warn(`Evento: ${e.message}`);
         await ix.editReply({ content: `❌ ${e.message}` });
@@ -613,18 +967,84 @@ module.exports = {
         return true;
       }
       if (ix.customId === `${PREFIX}:voice:no`) {
-        await ix.update({
-          content: 'Pulsa el botón para configurar roles.',
-          components: [
-            new ActionRowBuilder().addComponents(
-              new ButtonBuilder().setCustomId(`${PREFIX}:roles:open`).setLabel('Configurar roles').setStyle(ButtonStyle.Success),
-            ),
-          ],
+        const ev = pending.get(pendingKey(ix));
+        if (!ev) {
+          await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+          return true;
+        }
+        await showEmojiTypeSelect(ix);
+        return true;
+      }
+      if (ix.customId === `${PREFIX}:emoji:system`) {
+        await showSystemRolesModal(ix);
+        return true;
+      }
+      if (ix.customId === `${PREFIX}:emoji:guild`) {
+        const ev = pending.get(pendingKey(ix));
+        if (!ev) {
+          await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+          return true;
+        }
+        await showRolesSetup(ix, ev, 0, true);
+        return true;
+      }
+      if (ix.customId.startsWith(`${PREFIX}:customize:open:`)) {
+        const msgId = ix.customId.split(':')[3];
+        await ix.reply(buildCustomizePayload(msgId));
+        return true;
+      }
+      if (ix.customId.startsWith(`${PREFIX}:customize:image:`)) {
+        const msgId = ix.customId.split(':')[3];
+        if (!cache.has(gid(msgId))) {
+          await ix.reply({ content: '❌ Evento no encontrado.', ephemeral: true });
+          return true;
+        }
+        imageUploadWait.set(`${ix.user.id}:${ix.channelId}`, {
+          eventMessageId: msgId,
+          expires: Date.now() + 60_000,
+        });
+        await ix.reply({
+          content: '📎 Sube una **imagen** en este canal en los próximos 60 segundos.',
+          ephemeral: true,
         });
         return true;
       }
       if (ix.customId === `${PREFIX}:roles:open`) {
-        await askRolesModal(ix);
+        const ev = pending.get(pendingKey(ix));
+        if (!ev) {
+          await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+          return true;
+        }
+        if (countEventRoles(ev) > 0) {
+          await showRolesSetup(ix, ev, 0, false);
+        } else {
+          await showEmojiTypeSelect(ix);
+        }
+        return true;
+      }
+      if (ix.customId === `${PREFIX}:setup:publish`) {
+        const key = pendingKey(ix);
+        const ev = pending.get(key);
+        if (!ev) {
+          await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+          return true;
+        }
+        if (countEventRoles(ev) < 1) {
+          await ix.reply({ content: '❌ Añade al menos un rol.', ephemeral: true });
+          return true;
+        }
+        pending.delete(key);
+        await ix.deferReply({ ephemeral: true });
+        try {
+          const msg = await publishEvent(ix.client, getDb, ev, ix.channel);
+          await ix.editReply({
+            content: '✅ Evento creado. Personaliza imagen y color si quieres:',
+            components: publishedFollowupComponents(msg.id),
+          });
+        } catch (e) {
+          log.warn(`Evento: ${e.message}`);
+          await ix.editReply({ content: `❌ ${e.message}` });
+        }
         return true;
       }
       if (ix.customId.startsWith(`${PREFIX}:tpl:save:`)) {
@@ -671,16 +1091,68 @@ module.exports = {
     }
 
     if (ix.isChannelSelectMenu() && ix.customId === `${PREFIX}:voice:pick`) {
-      const ev = pending.get(`${ix.guildId}:${ix.user.id}`);
+      const key = pendingKey(ix);
+      const ev = pending.get(key);
       if (ev) ev.voice_channel_id = ix.channels.first().id;
-      await ix.update({
-        content: 'Canal de voz guardado. Configura roles:',
-        components: [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`${PREFIX}:roles:open`).setLabel('Configurar roles').setStyle(ButtonStyle.Success),
-          ),
-        ],
-      });
+      if (!ev) {
+        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        return true;
+      }
+      await showEmojiTypeSelect(ix);
+      return true;
+    }
+
+    if (ix.isStringSelectMenu() && ix.customId.startsWith(`${PREFIX}:customize:color:`)) {
+      const msgId = ix.customId.split(':')[3];
+      const colorName = ix.values[0];
+      try {
+        await applyColorToEvent(ix.client, getDb, msgId, colorName);
+        await ix.reply({ content: `✅ Color actualizado: **${colorName}**.`, ephemeral: true });
+      } catch (e) {
+        await ix.reply({ content: `❌ ${e.message}`, ephemeral: true });
+      }
+      return true;
+    }
+
+    if (ix.isStringSelectMenu() && ix.customId.startsWith(`${PREFIX}:setup:emoji:`)) {
+      const key = pendingKey(ix);
+      const ev = pending.get(key);
+      if (!ev) {
+        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        return true;
+      }
+      const page = parseInt(ix.customId.split(':').pop(), 10) || 0;
+      const val = ix.values[0];
+      if (val === '__next__') {
+        await showRolesSetup(ix, ev, page + 1);
+        return true;
+      }
+      if (val === '__prev__') {
+        await showRolesSetup(ix, ev, Math.max(0, page - 1));
+        return true;
+      }
+      await ix.guild.emojis.fetch().catch(() => {});
+      const emoji = ix.guild.emojis.cache.get(val);
+      if (!emoji) {
+        await ix.reply({ content: '❌ Emoji no encontrado.', ephemeral: true });
+        return true;
+      }
+      pendingRolePick.set(key, { emojiId: emoji.id, emojiName: emoji.name });
+      await showRoleNameModal(ix);
+      return true;
+    }
+
+    if (ix.isStringSelectMenu() && ix.customId === `${PREFIX}:setup:remove`) {
+      const key = pendingKey(ix);
+      const ev = pending.get(key);
+      if (!ev) {
+        await ix.reply({ content: 'Sesión expirada.', ephemeral: true });
+        return true;
+      }
+      const rm = ix.values[0];
+      if (rm && rm !== 'Ausente') delete ev.roles[rm];
+      ensureAusente(ev.roles);
+      await showRolesSetup(ix, ev, 0);
       return true;
     }
 
@@ -750,10 +1222,10 @@ module.exports = {
         tpl.expired = false;
         pending.set(`${ix.guildId}:${ix.user.id}`, tpl);
         await ix.update({
-          content: 'Plantilla cargada. Pulsa continuar.',
+          content: 'Plantilla cargada. Configura roles y publica:',
           components: [
             new ActionRowBuilder().addComponents(
-              new ButtonBuilder().setCustomId(`${PREFIX}:roles:open`).setLabel('Continuar → roles').setStyle(ButtonStyle.Success),
+              new ButtonBuilder().setCustomId(`${PREFIX}:roles:open`).setLabel('Continuar').setStyle(ButtonStyle.Success),
             ),
           ],
         });
@@ -762,5 +1234,29 @@ module.exports = {
     }
 
     return false;
+  },
+
+  async onMessageCreate(message, ctx) {
+    if (message.author.bot || !message.guild) return false;
+    const key = `${message.author.id}:${message.channel.id}`;
+    const wait = imageUploadWait.get(key);
+    if (!wait || Date.now() > wait.expires) {
+      if (wait) imageUploadWait.delete(key);
+      return false;
+    }
+    const att = message.attachments.find((a) => a.contentType?.startsWith('image/'));
+    if (!att) return false;
+    imageUploadWait.delete(key);
+    const { getDb, log } = ctx;
+    try {
+      await applyImageToEventMessage(message.client, getDb, wait.eventMessageId, att);
+      await message.delete().catch(() => {});
+      const note = await message.channel.send(`✅ <@${message.author.id}> imagen del evento actualizada.`).catch(() => null);
+      if (note) setTimeout(() => note.delete().catch(() => {}), 8000);
+    } catch (e) {
+      log.warn(`Evento imagen: ${e.message}`);
+      await message.reply({ content: `❌ ${e.message}` }).catch(() => {});
+    }
+    return true;
   },
 };

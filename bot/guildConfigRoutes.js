@@ -136,6 +136,11 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
   app.get('/api/guilds/:guildId/emojis', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
+    try {
+      await ctx.guild.emojis.fetch();
+    } catch {
+      /* cache parcial */
+    }
     const emojis = [...ctx.guild.emojis.cache.values()]
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((e) => ({
