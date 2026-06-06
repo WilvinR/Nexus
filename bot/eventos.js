@@ -275,6 +275,8 @@ async function publishEvent(client, getDb, ev, channel) {
     const imageName = ev.image_name || 'evento.png';
     files.push(new AttachmentBuilder(Buffer.from(ev.image_base64, 'base64'), { name: imageName }));
     embed.setImage(`attachment://${imageName}`);
+  } else if (ev.image_url) {
+    embed.setImage(ev.image_url);
   }
 
   const payload = {
@@ -292,7 +294,14 @@ async function publishEvent(client, getDb, ev, channel) {
   ev.message_id = msg.id;
   ev.channel_id = channel.id;
   saveEvent(getDb, msg.id, ev);
-  await msg.edit({ embeds: [buildEmbed(ev)], components: [roleSelectRow(msg.id, ev.roles)] });
+
+  const editPayload = {
+    embeds: [buildEmbed(ev)],
+    components: [roleSelectRow(msg.id, ev.roles)],
+  };
+  if (att?.url) editPayload.attachments = [];
+
+  await msg.edit(editPayload);
   await channel.send({ content: '@everyone Nuevo evento creado!' });
   startTimer(client, getDb, msg.id);
   return msg;
