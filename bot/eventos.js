@@ -143,9 +143,34 @@ function rolesDisplay(roles) {
   return out.trim() || 'No roles asignados.';
 }
 
-const EVENT_IMAGE_FILE = 'evento-banner.png';
+const EVENT_IMAGE_BASENAME = 'evento-banner';
 
-function buildEmbed(ev) {
+function imageUploadFromBase64(base64, imageName) {
+  const raw = String(base64 || '').includes(',') ? String(base64).split(',').pop() : String(base64 || '');
+  const buffer = Buffer.from(raw, 'base64');
+  if (!buffer.length) throw new Error('Imagen inválida o vacía');
+
+  let ext = 'png';
+  if (imageName && /\.(png|jpe?g|gif|webp)$/i.test(imageName)) {
+    ext = imageName.split('.').pop().toLowerCase().replace('jpeg', 'jpg');
+  } else if (buffer[0] === 0xff && buffer[1] === 0xd8) ext = 'jpg';
+  else if (buffer[0] === 0x47 && buffer[1] === 0x49) ext = 'gif';
+  else if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[8] === 0x57) ext = 'webp';
+
+  const filename = `${EVENT_IMAGE_BASENAME}.${ext}`;
+  return { buffer, filename };
+}
+
+function resolveEmbedImage(ev, message) {
+  const attachmentName = ev.image_file || `${EVENT_IMAGE_BASENAME}.png`;
+  const hasAttachment = message?.attachments?.some?.((a) => a.name === attachmentName);
+  if (hasAttachment) return `attachment://${attachmentName}`;
+  if (ev.image_url) return ev.image_url;
+  if (ev.has_event_image) return `attachment://${attachmentName}`;
+  return null;
+}
+
+function buildEmbed(ev, message) {
   const color = ev.embed_color || 0x5865f2;
   const desc = (ev.description || '').trim();
   const rawName = String(ev.name || 'Evento').trim();
@@ -185,11 +210,18 @@ function buildEmbed(ev) {
     inline: false,
   });
 
-  if (ev.image_url) embed.setImage(ev.image_url);
-  else if (ev.image_attachment) embed.setImage(`attachment://${EVENT_IMAGE_FILE}`);
+  const image = resolveEmbedImage(ev, message);
+  if (image) embed.setImage(image);
 
   if (ev.creator) embed.setFooter({ text: `Evento organizado por ${ev.creator}` });
   return embed;
+}
+
+async function refreshEventMessage(message, ev, messageId) {
+  await message.edit({
+    embeds: [buildEmbed(ev, message)],
+    components: [roleSelectRow(messageId, ev.roles)],
+  });
 }
 
 function roleSelectRow(messageId, roles) {
@@ -262,7 +294,7 @@ function startTimer(client, getDb, messageId) {
     try {
       const ch = await client.channels.fetch(ev.channel_id);
       const msg = await ch.messages.fetch(id);
-      await msg.edit({ embeds: [buildEmbed(ev)], components: [roleSelectRow(id, ev.roles)] });
+      await refreshEventMessage(msg, ev, id);
     } catch {
       deleteEvent(getDb, id);
       clearInterval(iv);
@@ -275,35 +307,33 @@ function startTimer(client, getDb, messageId) {
 async function publishEvent(client, getDb, ev, channel) {
   const files = [];
   const hasUpload = Boolean(ev.image_base64);
+  let uploadMeta = null;
+
   if (hasUpload) {
-    files.push(new AttachmentBuilder(Buffer.from(ev.image_base64, 'base64'), { name: EVENT_IMAGE_FILE }));
+    uploadMeta = imageUploadFromBase64(ev.image_base64, ev.image_name);
+    files.push(new AttachmentBuilder(uploadMeta.buffer, { name: uploadMeta.filename }));
+    ev.has_event_image = true;
+    ev.image_file = uploadMeta.filename;
   }
+
   delete ev.image_base64;
   delete ev.image_name;
 
-  const draft = { ...ev, image_url: hasUpload ? null : ev.image_url || null, image_attachment: hasUpload };
   const payload = {
-    embeds: [buildEmbed(draft)],
+    embeds: [buildEmbed(ev)],
     components: [roleSelectRow('pending', ev.roles)],
   };
   if (files.length) payload.files = files;
 
   const msg = await channel.send(payload);
-  const att = msg.attachments.first();
+  const att = msg.attachments.find((a) => a.name === ev.image_file) || msg.attachments.first();
   if (att?.url) ev.image_url = att.url;
-  delete ev.image_attachment;
 
   ev.message_id = msg.id;
   ev.channel_id = channel.id;
   saveEvent(getDb, msg.id, ev);
 
-  const editPayload = {
-    embeds: [buildEmbed(ev)],
-    components: [roleSelectRow(msg.id, ev.roles)],
-  };
-  if (att?.url) editPayload.attachments = [];
-
-  await msg.edit(editPayload);
+  await msg.edit({ components: [roleSelectRow(msg.id, ev.roles)] });
   await channel.send({ content: '@everyone Nuevo evento creado!' });
   startTimer(client, getDb, msg.id);
   return msg;
@@ -565,7 +595,7 @@ module.exports = {
       try {
         const ch = await ix.client.channels.fetch(ev.channel_id);
         const msg = await ch.messages.fetch(msgId);
-        await msg.edit({ embeds: [buildEmbed(ev)], components: [roleSelectRow(msgId, ev.roles)] });
+        await refreshEventMessage(msg, ev, msgId);
       } catch {
         /* */
       }
@@ -698,7 +728,7 @@ module.exports = {
         }
         rd.users.push(display);
         saveEvent(getDb, msgId, ev);
-        await ix.update({ embeds: [buildEmbed(ev)], components: [roleSelectRow(msgId, ev.roles)] });
+        await ix.update({ embeds: [buildEmbed(ev, ix.message)], components: [roleSelectRow(msgId, ev.roles)] });
         await ix.followUp({ content: roleKey === 'Ausente' ? '✅ Ausente.' : `✅ **${roleKey}**.`, ephemeral: true });
         return true;
       }
