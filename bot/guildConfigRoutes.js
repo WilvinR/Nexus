@@ -23,6 +23,7 @@ const {
   deleteEventFromDashboard,
 } = require('./eventos');
 const { resolveBattleTrackInput, seedBattles } = require('./battle');
+const { GUCCI_MIN_FAME } = require('./kill');
 
 function gid(id) {
   return String(id);
@@ -376,6 +377,43 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     getDb()
       .prepare('DELETE FROM kill_entities WHERE id = ? AND discord_guild_id = ?')
       .run(Number(req.params.id), gid(ctx.guildId));
+    res.json({ ok: true });
+  });
+
+  app.get('/api/guilds/:guildId/kill/gucci', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const row = getDb()
+      .prepare('SELECT * FROM gucci_kills_config WHERE discord_guild_id = ?')
+      .get(gid(ctx.guildId));
+    res.json({
+      ok: true,
+      config: row ? { channelId: row.channel_id, enabled: row.enabled === 1 } : null,
+      minFame: GUCCI_MIN_FAME,
+    });
+  });
+
+  app.put('/api/guilds/:guildId/kill/gucci', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const channelId = String(req.body?.channelId || '').trim();
+    if (!channelId) return res.status(400).json({ error: 'Canal requerido' });
+    const ch = ctx.guild.channels.cache.get(channelId);
+    if (!ch?.isTextBased()) return res.status(400).json({ error: 'Canal no válido' });
+    getDb()
+      .prepare(`
+        INSERT INTO gucci_kills_config (discord_guild_id, channel_id, enabled)
+        VALUES (?, ?, 1)
+        ON CONFLICT(discord_guild_id) DO UPDATE SET channel_id = excluded.channel_id, enabled = 1
+      `)
+      .run(gid(ctx.guildId), channelId);
+    res.json({ ok: true, minFame: GUCCI_MIN_FAME });
+  });
+
+  app.delete('/api/guilds/:guildId/kill/gucci', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    getDb().prepare('DELETE FROM gucci_kills_config WHERE discord_guild_id = ?').run(gid(ctx.guildId));
     res.json({ ok: true });
   });
 

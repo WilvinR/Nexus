@@ -17,6 +17,8 @@ const COMMAND_TO_MODULE = {
   configurar_registro: 'registro',
   informacion_gremio: 'registro',
   killboard: 'kill',
+  'gucci-kills': 'kill',
+  'gucci-kills-detener': 'kill',
   precio: 'mercado',
   utc: 'utilidad',
   sugerencia: 'utilidad',

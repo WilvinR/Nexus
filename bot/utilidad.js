@@ -23,7 +23,7 @@ const CATEGORIES = {
     commands: [
       { name: '/registrarse', desc: 'Vincula tu cuenta de Albion al Discord (nombre o ID).' },
       { name: '/registro_manual', desc: 'Registra manualmente a un miembro (Mod).' },
-      { name: '/informacion_gremio', desc: 'Datos del gremio + IDs copiables (gremio y alianza).' },
+      { name: '/informacion_gremio', desc: 'Info del gremio: founder, IDs, tag y top players.' },
       { name: '/configurar_registro', desc: 'Panel para configurar alianza, gremios y roles de registro.' },
     ],
   },
@@ -34,6 +34,8 @@ const CATEGORIES = {
       { name: '/killboard seguir', desc: 'Monitorea kills y muertes de un gremio o jugador.' },
       { name: '/killboard detener', desc: 'Detiene el seguimiento de una entidad.' },
       { name: '/killboard config', desc: 'Muestra la configuración activa del killboard.' },
+      { name: '/gucci-kills', desc: 'Activa feed global ≥2M fama (elige canal).' },
+      { name: '/gucci-kills-detener', desc: 'Desactiva Gucci Kills.' },
     ],
   },
   batallas: {

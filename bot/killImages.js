@@ -212,15 +212,19 @@ async function buildKillNotificationImages(killData, entityConfig) {
   const entityId = String(entityConfig.albion_entity_id);
   const entityType = entityConfig.type || entityConfig.entity_type;
 
-  const isOurKill =
-    (entityType === 'guild' && killerGuildId === entityId) ||
-    (entityType === 'player' && killerId === entityId);
-  const isOurDeath =
-    (entityType === 'guild' && victimGuildId === entityId) ||
-    (entityType === 'player' && victimId === entityId);
-
-  if (!isOurKill && !isOurDeath) return { skip: true };
-  const isKill = isOurKill;
+  let isKill;
+  if (entityType === 'global') {
+    isKill = true;
+  } else {
+    const isOurKill =
+      (entityType === 'guild' && killerGuildId === entityId) ||
+      (entityType === 'player' && killerId === entityId);
+    const isOurDeath =
+      (entityType === 'guild' && victimGuildId === entityId) ||
+      (entityType === 'player' && victimId === entityId);
+    if (!isOurKill && !isOurDeath) return { skip: true };
+    isKill = isOurKill;
+  }
 
   const WIDTH = 1250;
   let HEIGHT = 900;

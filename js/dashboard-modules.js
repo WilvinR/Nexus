@@ -275,18 +275,48 @@ function initModuleModals(deps) {
 
   async function openKill() {
     await ensureChannels();
-    const r = await api(`/api/guilds/${modalGuildId}/kill/entities`);
+    const [r, gucciRes] = await Promise.all([
+      api(`/api/guilds/${modalGuildId}/kill/entities`),
+      api(`/api/guilds/${modalGuildId}/kill/gucci`),
+    ]);
     if (!r.ok) return alert('Error killboard');
     const { entities } = await r.json();
+    const gucciData = gucciRes.ok ? await gucciRes.json() : { config: null, minFame: 2000000 };
+    const gucciCfg = gucciData.config;
+    const gucciMinM = Math.round((gucciData.minFame || 2000000) / 1e6);
 
     function render() {
-      let html = '<div class="modal-section"><h3>Gremios en seguimiento</h3>';
+      let html = `<div class="modal-section"><h3>Gucci Kills (global)</h3>
+        <p class="modal-meta">Kills open world ≥ <strong>${gucciMinM}M</strong> fama · imágenes killboard</p>
+        ${channelSelect('gk-ch', gucciCfg?.channelId, 'Canal Gucci Kills')}
+        <div class="form-actions-row" style="margin-top:0.75rem">
+          <button type="button" class="btn btn-accent btn-sm" id="gk-save">Guardar Gucci</button>
+          ${gucciCfg ? '<button type="button" class="btn btn-ghost btn-sm" id="gk-stop">Desactivar Gucci</button>' : ''}
+        </div></div>`;
+      html += '<div class="modal-section"><h3>Gremios en seguimiento</h3>';
       for (const e of entities) {
         html += capsule(`${e.name} (${e.entityType})`, e.id);
       }
       html += '<button type="button" class="btn btn-accent btn-sm" data-kill="add">+ Añadir Gremio al Seguimiento</button>';
       html += '<div id="kill-form-slot"></div></div>';
       openModal('Killboard', html);
+      document.getElementById('gk-save')?.addEventListener('click', async () => {
+        const channelId = document.getElementById('gk-ch')?.value;
+        if (!channelId) return alert('Elige un canal para Gucci Kills');
+        const res = await api(`/api/guilds/${modalGuildId}/kill/gucci`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channelId }),
+        });
+        if (!res.ok) alert((await res.json().catch(() => ({}))).error || 'Error');
+        else alert('Gucci Kills activo');
+      });
+      document.getElementById('gk-stop')?.addEventListener('click', async () => {
+        if (!confirm('¿Desactivar Gucci Kills?')) return;
+        await api(`/api/guilds/${modalGuildId}/kill/gucci`, { method: 'DELETE' });
+        gucciData.config = null;
+        render();
+      });
       body.querySelector('[data-kill="add"]')?.addEventListener('click', () => showKillForm(null, render));
       body.querySelectorAll('[data-act="edit"]').forEach((btn) => {
         btn.addEventListener('click', () => {

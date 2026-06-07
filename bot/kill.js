@@ -15,8 +15,18 @@ const { buildKillNotificationImages } = require('./killImages');
 
 const API = 'https://gameinfo.albiononline.com/api/gameinfo';
 const PREFIX = 'kill';
+const GUCCI_MIN_FAME = parseInt(process.env.GUCCI_MIN_FAME || '2000000', 10) || 2_000_000;
+const GUCCI_CHECK_MS = parseInt(process.env.GUCCI_CHECK_MS || '60000', 10) || 60_000;
+const GUCCI_NOTIFY_DELAY_MS = (parseFloat(process.env.GUCCI_NOTIFICATION_DELAY || '8') || 8) * 1000;
+const GUCCI_GLOBAL_ENTITY = {
+  name: 'Gucci Kills',
+  entity_type: 'global',
+  type: 'global',
+  albion_entity_id: '_',
+};
 const pending = new Map();
 const recentEvents = new Map();
+let gucciNotifyChain = Promise.resolve();
 
 const notificationRetries = Math.max(1, parseInt(process.env.KILL_NOTIFICATION_RETRIES || '3', 10) || 3);
 const notificationRetryDelay = parseFloat(process.env.KILL_NOTIFICATION_RETRY_DELAY || '2') || 2;
@@ -390,6 +400,169 @@ async function runMonitor(getDb, client, log) {
   log.info(`\n  ✅  CICLO KILLBOARD COMPLETADO\n${sep}`);
 }
 
+function isGucciEvent(ev) {
+  if (ev.Type !== 'KILL') return false;
+  if (ev.KillArea && ev.KillArea !== 'OPEN_WORLD') return false;
+  return (ev.TotalVictimKillFame || 0) >= GUCCI_MIN_FAME;
+}
+
+function loadGucciFeedState(getDb) {
+  const row = getDb().prepare('SELECT * FROM gucci_feed_state WHERE id = 1').get();
+  let sentIds = [];
+  try {
+    sentIds = JSON.parse(row?.sent_event_ids || '[]');
+  } catch {
+    sentIds = [];
+  }
+  return {
+    lastEventId: row?.last_event_id ? String(row.last_event_id) : null,
+    sentIds: sentIds.map(String),
+  };
+}
+
+function saveGucciFeedState(getDb, lastEventId, sentIds) {
+  getDb()
+    .prepare(`
+      INSERT INTO gucci_feed_state (id, last_event_id, sent_event_ids, updated_at)
+      VALUES (1, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        last_event_id = excluded.last_event_id,
+        sent_event_ids = excluded.sent_event_ids,
+        updated_at = excluded.updated_at
+    `)
+    .run(String(lastEventId || ''), JSON.stringify(sentIds.slice(-200)), Date.now());
+}
+
+function upsertGucciConfig(getDb, guildId, channelId) {
+  getDb()
+    .prepare(`
+      INSERT INTO gucci_kills_config (discord_guild_id, channel_id, enabled)
+      VALUES (?, ?, 1)
+      ON CONFLICT(discord_guild_id) DO UPDATE SET channel_id = excluded.channel_id, enabled = 1
+    `)
+    .run(gid(guildId), String(channelId));
+}
+
+function collectNewGucciEvents(events, lastEventId, sentSet) {
+  if (!events?.length) return { seed: null, events: [] };
+  const top = String(events[0].EventId);
+  if (!lastEventId) return { seed: top, events: [] };
+
+  const out = [];
+  for (const ev of events) {
+    const eid = String(ev.EventId);
+    if (eid === lastEventId) break;
+    if (sentSet.has(eid)) continue;
+    if (isGucciEvent(ev)) out.push(ev);
+  }
+  out.reverse();
+  return { seed: null, events: out };
+}
+
+async function sendGucciKill(channel, event, log) {
+  const built = await buildKillNotificationImages(event, GUCCI_GLOBAL_ENTITY);
+  if (built.skip) return false;
+
+  const embedColor = 0x57f287;
+  const embedMain = new EmbedBuilder()
+    .setColor(embedColor)
+    .setTimestamp(built.eventTime)
+    .setImage('attachment://kill_equip.png');
+  if (built.eventId) {
+    embedMain.setURL(`https://albiononline.com/en/killboard/kill/${built.eventId}`);
+  }
+
+  const files = [new AttachmentBuilder(built.mainBuffer, { name: 'kill_equip.png' })];
+  const embeds = [embedMain];
+  if (built.statsBuffer) {
+    files.push(new AttachmentBuilder(built.statsBuffer, { name: 'combat_stats.png' }));
+    embeds.push(
+      new EmbedBuilder()
+        .setColor(embedColor)
+        .setTimestamp(built.eventTime)
+        .setImage('attachment://combat_stats.png'),
+    );
+  }
+
+  await channel.send({ content: built.content, embeds, files });
+  return true;
+}
+
+async function broadcastGucciKill(getDb, client, event, log) {
+  const rows = getDb().prepare('SELECT * FROM gucci_kills_config WHERE enabled = 1').all();
+  for (const row of rows) {
+    const guild = client.guilds.cache.get(row.discord_guild_id);
+    if (!guild) continue;
+    const channel = guild.channels.cache.get(row.channel_id);
+    if (!channel?.isTextBased()) continue;
+
+    gucciNotifyChain = gucciNotifyChain.then(async () => {
+      try {
+        await sendGucciKill(channel, event, log);
+        if (GUCCI_NOTIFY_DELAY_MS > 0) await new Promise((r) => setTimeout(r, GUCCI_NOTIFY_DELAY_MS));
+      } catch (e) {
+        log.warn(`[gucci-kills] ${row.discord_guild_id}: ${e.message}`);
+      }
+    });
+  }
+  await gucciNotifyChain;
+}
+
+async function runGucciMonitor(getDb, client, log) {
+  const active = getDb().prepare('SELECT 1 FROM gucci_kills_config WHERE enabled = 1 LIMIT 1').get();
+  if (!active) return;
+
+  const res = await apiGet(`${API}/events?limit=50&offset=0`);
+  if (!res.ok || !Array.isArray(res.data) || !res.data.length) return;
+
+  const state = loadGucciFeedState(getDb);
+  const sentSet = new Set(state.sentIds);
+  const { seed, events: newEvents } = collectNewGucciEvents(res.data, state.lastEventId, sentSet);
+
+  if (seed) {
+    saveGucciFeedState(getDb, seed, state.sentIds);
+    log.info('[gucci-kills] Feed inicializado (sin historial)');
+    return;
+  }
+
+  const topId = String(res.data[0].EventId);
+  if (!newEvents.length) {
+    if (topId !== state.lastEventId) saveGucciFeedState(getDb, topId, state.sentIds);
+    return;
+  }
+
+  const sentIds = [...state.sentIds];
+  for (const ev of newEvents) {
+    const eid = String(ev.EventId);
+    if (sentSet.has(eid)) continue;
+    sentSet.add(eid);
+    sentIds.push(eid);
+    log.info(
+      `[gucci-kills] ${ev.Killer?.Name || '?'} → ${ev.Victim?.Name || '?'} (${Math.round((ev.TotalVictimKillFame || 0) / 1e6)}M)`,
+    );
+    await broadcastGucciKill(getDb, client, ev, log);
+  }
+
+  saveGucciFeedState(getDb, topId, sentIds);
+}
+
+const gucciKillsCmd = new SlashCommandBuilder()
+  .setName('gucci-kills')
+  .setDescription('Activa feed global de kills ≥2M fama (open world)')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+  .addChannelOption((o) =>
+    o
+      .setName('canal')
+      .setDescription('Canal de notificaciones')
+      .addChannelTypes(ChannelType.GuildText)
+      .setRequired(true),
+  );
+
+const gucciKillsDetenerCmd = new SlashCommandBuilder()
+  .setName('gucci-kills-detener')
+  .setDescription('Desactiva el feed Gucci Kills')
+  .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild);
+
 const killboard = new SlashCommandBuilder()
   .setName('killboard')
   .setDescription('Killboard de Albion Online')
@@ -521,19 +694,48 @@ async function cmdConfig(ix, { getDb }) {
 
 module.exports = {
   id: 'kill',
-  commands: [{ data: killboard }],
+  GUCCI_MIN_FAME,
+  commands: [{ data: killboard }, { data: gucciKillsCmd }, { data: gucciKillsDetenerCmd }],
 
   onGuildRemove(guildId, { getDb }) {
     getDb().prepare('DELETE FROM kill_entities WHERE discord_guild_id = ?').run(gid(guildId));
+    getDb().prepare('DELETE FROM gucci_kills_config WHERE discord_guild_id = ?').run(gid(guildId));
   },
 
   onInit(client, { getDb, log }) {
     setInterval(() => runMonitor(getDb, client, log), 2 * 60 * 1000);
+    setInterval(() => runGucciMonitor(getDb, client, log), GUCCI_CHECK_MS);
     log.info('Killboard monitor cada 2 min (imágenes PIL → canvas)');
+    log.info(`Gucci Kills cada ${GUCCI_CHECK_MS / 1000}s (≥${GUCCI_MIN_FAME / 1e6}M fama)`);
   },
 
   async handleInteraction(ix, ctx) {
     const { getDb, log } = ctx;
+
+    if (ix.isChatInputCommand() && ix.commandName === 'gucci-kills') {
+      const canal = ix.options.getChannel('canal');
+      upsertGucciConfig(getDb, ix.guildId, canal.id);
+      await ix.reply({
+        content:
+          `✅ **Gucci Kills** activo en ${canal}\n` +
+          `Umbral: **≥ ${(GUCCI_MIN_FAME / 1e6).toFixed(0)}M** fama · open world · Americas`,
+        ephemeral: false,
+      });
+      return true;
+    }
+
+    if (ix.isChatInputCommand() && ix.commandName === 'gucci-kills-detener') {
+      const row = getDb()
+        .prepare('SELECT 1 FROM gucci_kills_config WHERE discord_guild_id = ?')
+        .get(gid(ix.guildId));
+      if (!row) {
+        await ix.reply({ content: '❌ Gucci Kills no está activo.', ephemeral: true });
+        return true;
+      }
+      getDb().prepare('DELETE FROM gucci_kills_config WHERE discord_guild_id = ?').run(gid(ix.guildId));
+      await ix.reply({ content: '✅ Gucci Kills desactivado.', ephemeral: true });
+      return true;
+    }
 
     if (ix.isChatInputCommand() && ix.commandName === 'killboard') {
       const sub = ix.options.getSubcommand();

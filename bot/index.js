@@ -130,6 +130,17 @@ function getDb() {
       data_json TEXT NOT NULL,
       created_at REAL
     );
+    CREATE TABLE IF NOT EXISTS gucci_kills_config (
+      discord_guild_id TEXT PRIMARY KEY,
+      channel_id TEXT NOT NULL,
+      enabled INTEGER DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS gucci_feed_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      last_event_id TEXT,
+      sent_event_ids TEXT DEFAULT '[]',
+      updated_at INTEGER DEFAULT 0
+    );
     CREATE TABLE IF NOT EXISTS battle_tracking (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       discord_guild_id TEXT NOT NULL,
