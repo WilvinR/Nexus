@@ -103,6 +103,21 @@ function initModuleModals(deps) {
     </div>`;
   }
 
+  function setBtnLoading(btn, loading) {
+    if (!btn) return;
+    if (loading) {
+      if (!btn.dataset.origHtml) btn.dataset.origHtml = btn.innerHTML;
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+      btn.innerHTML = '<span class="btn-spinner" aria-label="Procesando"></span>';
+    } else {
+      btn.disabled = false;
+      btn.classList.remove('is-loading');
+      btn.innerHTML = btn.dataset.origHtml || 'Guardar';
+      delete btn.dataset.origHtml;
+    }
+  }
+
   window.openModuleConfig = async (moduleId) => {
     modalGuildId = getGuildId();
     channelsCache = [];
@@ -380,6 +395,7 @@ function initModuleModals(deps) {
 
     function showBatForm(row, refresh) {
       const slot = document.getElementById('bat-form-slot');
+      const idValue = row?.trackType === 'alliance' && row?.allianceId ? row.allianceId : row?.albionGuildId || '';
       slot.innerHTML = `<div class="sub-form">
         <h4>${row ? 'Editar' : 'Añadir'} seguimiento</h4>
         <label class="form-label">Tipo
@@ -388,43 +404,74 @@ function initModuleModals(deps) {
             <option value="alliance">Alianza</option>
           </select>
         </label>
-        <label class="form-label">Nombre (opcional)<input class="form-input" id="bf-name"></label>
-        <label class="form-label">ID Albion (gremio)<input class="form-input" id="bf-id" value="${escapeHtml(row?.albionGuildId || '')}"></label>
+        <label class="form-label">Nombre (opcional)<input class="form-input" id="bf-name" value="${escapeHtml(row?.label && row.label !== row.albionGuildId ? row.label : '')}"></label>
+        <label class="form-label" id="bf-id-label">ID del gremio en Albion</label>
+        <input class="form-input" id="bf-id" value="${escapeHtml(idValue)}" autocomplete="off" spellcheck="false">
+        <p class="modal-meta" id="bf-id-hint">UUID del gremio — usa /informacion_gremio para obtenerlo.</p>
         ${channelSelect('bf-ch', row?.channelId, 'Canal de reportes')}
         <div class="form-actions">
           <button type="button" class="btn btn-accent" data-act="save">Guardar</button>
           <button type="button" class="btn" data-act="cancel">Cancelar</button>
         </div>
       </div>`;
-      if (row?.trackType) document.getElementById('bf-type').value = row.trackType;
+      const typeSel = document.getElementById('bf-type');
+      if (row?.trackType) typeSel.value = row.trackType;
+
+      function updateBfIdHint() {
+        const isAlliance = typeSel.value === 'alliance';
+        document.getElementById('bf-id-label').textContent = isAlliance
+          ? 'ID de la alianza en Albion'
+          : 'ID del gremio en Albion';
+        document.getElementById('bf-id-hint').textContent = isAlliance
+          ? 'Pega el ID de la alianza (ej. Titanomaquia). También acepta ID de un gremio miembro.'
+          : 'UUID del gremio — usa /informacion_gremio → Copiar ID gremio.';
+      }
+      typeSel.addEventListener('change', updateBfIdHint);
+      updateBfIdHint();
+
       slot.querySelector('[data-act="cancel"]').onclick = () => {
         slot.innerHTML = '';
       };
       slot.querySelector('[data-act="save"]').onclick = async () => {
+        const saveBtn = slot.querySelector('[data-act="save"]');
         const payload = {
           albionGuildId: document.getElementById('bf-id').value.trim(),
           channelId: document.getElementById('bf-ch').value,
-          trackType: document.getElementById('bf-type').value,
+          trackType: typeSel.value,
+          name: document.getElementById('bf-name').value.trim(),
         };
-        const res = row
-          ? await api(`/api/guilds/${modalGuildId}/battle/tracking/${row.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ channelId: payload.channelId, albionGuildId: payload.albionGuildId }),
-            })
-          : await api(`/api/guilds/${modalGuildId}/battle/tracking`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            });
-        if (!res.ok) alert((await res.json().catch(() => ({}))).error || 'Error');
-        else {
-          const r2 = await api(`/api/guilds/${modalGuildId}/battle/tracking`);
-          if (r2.ok) {
-            tracks.length = 0;
-            tracks.push(...(await r2.json()).tracks);
+        if (!payload.albionGuildId || !payload.channelId) {
+          alert('Canal e ID son obligatorios.');
+          return;
+        }
+        setBtnLoading(saveBtn, true);
+        try {
+          const res = row
+            ? await api(`/api/guilds/${modalGuildId}/battle/tracking/${row.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  channelId: payload.channelId,
+                  albionGuildId: payload.albionGuildId,
+                  trackType: payload.trackType,
+                }),
+              })
+            : await api(`/api/guilds/${modalGuildId}/battle/tracking`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              });
+          if (!res.ok) alert((await res.json().catch(() => ({}))).error || 'Error');
+          else {
+            const r2 = await api(`/api/guilds/${modalGuildId}/battle/tracking`);
+            if (r2.ok) {
+              tracks.length = 0;
+              tracks.push(...(await r2.json()).tracks);
+            }
+            refresh();
           }
-          refresh();
+        } finally {
+          setBtnLoading(saveBtn, false);
         }
       };
     }

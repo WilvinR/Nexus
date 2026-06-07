@@ -23,7 +23,7 @@ const CATEGORIES = {
     commands: [
       { name: '/registrarse', desc: 'Vincula tu cuenta de Albion al Discord (nombre o ID).' },
       { name: '/registro_manual', desc: 'Registra manualmente a un miembro (Mod).' },
-      { name: '/informacion_gremio', desc: 'Consulta datos de un gremio en Albion por nombre.' },
+      { name: '/informacion_gremio', desc: 'Datos del gremio + IDs copiables (gremio y alianza).' },
       { name: '/configurar_registro', desc: 'Panel para configurar alianza, gremios y roles de registro.' },
     ],
   },
@@ -41,7 +41,7 @@ const CATEGORIES = {
     emoji: '🛡️',
     commands: [
       { name: '/seguir_batalla', desc: 'Monitorea batallas de un gremio (canal + gremio_id).' },
-      { name: '/seguir_batalla_alianza', desc: 'Monitorea batallas de toda la alianza.' },
+      { name: '/seguir_batalla_alianza', desc: 'Monitorea batallas de la alianza (ID alianza o gremio miembro).' },
       { name: '/detener_batalla', desc: 'Detiene el seguimiento de batallas.' },
     ],
   },

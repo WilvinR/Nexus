@@ -80,10 +80,16 @@ function buildGuildInfoEmbed(guild, allianceText) {
   const death = guild.DeathFame ?? 0;
   const kd = death > 0 && kill > 0 ? (kill / death).toFixed(2) : '—';
 
+  let desc =
+    `**ID del gremio** — registro, killboard, batallas (gremio)\n\`\`\`\n${guild.Id}\n\`\`\``;
+  if (guild.AllianceId) {
+    desc += `\n**ID de la alianza** — batallas (alianza), registro\n\`\`\`\n${guild.AllianceId}\n\`\`\``;
+  }
+
   return new EmbedBuilder()
     .setTitle(`🏰 ${guild.Name}`)
     .setColor(0x6b8e23)
-    .setDescription(`**ID del gremio** (para registro / killboard)\n\`\`\`\n${guild.Id}\n\`\`\``)
+    .setDescription(desc)
     .addFields(
       { name: 'Alianza', value: allianceText, inline: true },
       { name: 'Miembros', value: String(guild.MemberCount ?? '—'), inline: true },
@@ -102,6 +108,26 @@ function buildGuildInfoEmbed(guild, allianceText) {
     .setTimestamp();
 }
 
+function guildInfoCopyRow(guild) {
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`registro:copy:${guild.Id}`)
+      .setLabel('Copiar ID gremio')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('📋'),
+  );
+  if (guild.AllianceId) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`registro:copy:${guild.AllianceId}`)
+        .setLabel('Copiar ID alianza')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji('📋'),
+    );
+  }
+  return row;
+}
+
 async function replyGuildInfo(ix, guildId) {
   const res = await albionGuild(guildId);
   if (!res.ok) {
@@ -109,7 +135,7 @@ async function replyGuildInfo(ix, guildId) {
   }
   const allianceText = await allianceLabel(res.data);
   const embed = buildGuildInfoEmbed(res.data, allianceText);
-  return ix.editReply({ content: null, embeds: [embed], components: [] });
+  return ix.editReply({ content: null, embeds: [embed], components: [guildInfoCopyRow(res.data)] });
 }
 
 function gid(discordGuildId) {
@@ -682,6 +708,15 @@ module.exports = {
     const names = ['registrarse', 'registro_manual', 'informacion_gremio', 'configurar_registro'];
     if (ix.isChatInputCommand() && names.includes(ix.commandName)) {
       await commands.find((x) => x.data.name === ix.commandName).run(ix, ctx);
+      return true;
+    }
+
+    if (ix.isButton() && ix.customId.startsWith('registro:copy:')) {
+      const id = ix.customId.slice('registro:copy:'.length);
+      await ix.reply({
+        content: `📋 **Copiar ID**\n\`\`\`\n${id}\n\`\`\`\nSelecciona el bloque de arriba y cópialo (Ctrl+C / mantén pulsado en móvil).`,
+        ephemeral: true,
+      });
       return true;
     }
 

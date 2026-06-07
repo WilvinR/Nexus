@@ -189,6 +189,31 @@ nav.site-nav.has-badge {
   box-shadow: 0 8px 28px rgba(0, 229, 255, 0.25), 0 0 20px var(--gold-dim);
 }
 
+.btn.is-loading {
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.25rem;
+}
+
+.btn-spinner {
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: btn-spin 0.7s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .hero {
   position: relative;
   z-index: 1;

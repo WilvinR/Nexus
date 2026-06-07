@@ -71,6 +71,50 @@ async function seedBattles(getDb, rowId, guildId) {
     .run(JSON.stringify(ids), rowId);
 }
 
+/** Tipo gremio → solo guild id. Tipo alianza → alliance id o guild miembro. */
+async function resolveBattleTrackInput(trackType, albionId) {
+  const id = String(albionId || '').trim();
+  if (!id) return { error: 'ID de Albion requerido' };
+
+  if (trackType === 'guild') {
+    const check = await apiGet(`${API}/guilds/${id}`);
+    if (!check.ok) return { error: 'Gremio no encontrado en Albion' };
+    return {
+      trackType: 'guild',
+      albionGuildId: id,
+      label: check.data?.Name || id,
+    };
+  }
+
+  const asGuild = await apiGet(`${API}/guilds/${id}`);
+  if (asGuild.ok) {
+    const allianceId = asGuild.data?.AllianceId;
+    if (!allianceId) return { error: 'El gremio no tiene alianza' };
+    const allianceTag = asGuild.data?.AllianceTag || `Alianza_${String(allianceId).slice(0, 8)}`;
+    return {
+      trackType: 'alliance',
+      albionGuildId: id,
+      allianceId: String(allianceId),
+      allianceTag,
+      label: allianceTag,
+    };
+  }
+
+  const asAlliance = await apiGet(`${API}/alliances/${id}`);
+  if (!asAlliance.ok) return { error: 'Gremio o alianza no encontrado en Albion' };
+  const guildList = asAlliance.data?.Guilds || [];
+  if (!guildList.length) return { error: 'La alianza no tiene gremios en Albion' };
+  const tag = asAlliance.data?.Tag || asAlliance.data?.AllianceTag || `Alianza_${id.slice(0, 8)}`;
+  const name = asAlliance.data?.Name || asAlliance.data?.AllianceName || tag;
+  return {
+    trackType: 'alliance',
+    albionGuildId: guildList[0].Id,
+    allianceId: id,
+    allianceTag: tag,
+    label: name,
+  };
+}
+
 async function sendGuildBattle(channel, battle, albionGuildId, log) {
   const built = buildGuildBattleImage(battle, albionGuildId);
   const embed = new EmbedBuilder()
@@ -234,7 +278,10 @@ const commands = [
         o.setName('canal').setDescription('Canal de notificaciones').addChannelTypes(ChannelType.GuildText).setRequired(true),
       )
       .addStringOption((o) =>
-        o.setName('gremio_id').setDescription('ID de un gremio de la alianza').setRequired(true),
+        o
+          .setName('gremio_id')
+          .setDescription('ID de la alianza o de un gremio miembro')
+          .setRequired(true),
       ),
     async run(ix, { getDb, log }) {
       const canal = ix.options.getChannel('canal');
@@ -243,23 +290,16 @@ const commands = [
         return ix.reply({ content: '❌ ID inválido.', ephemeral: true });
       }
 
-      const check = await apiGet(`${API}/guilds/${gremioId}`);
-      if (!check.ok || !check.data) {
-        return ix.reply({ content: '❌ Gremio no encontrado.', ephemeral: true });
+      const resolved = await resolveBattleTrackInput('alliance', gremioId);
+      if (resolved.error) {
+        return ix.reply({ content: `❌ ${resolved.error}`, ephemeral: true });
       }
-
-      const allianceId = check.data.AllianceId;
-      if (!allianceId) {
-        return ix.reply({ content: '❌ Ese gremio no pertenece a ninguna alianza.', ephemeral: true });
-      }
-
-      const allianceTag = check.data.AllianceTag || `Alianza_${String(allianceId).slice(0, 8)}`;
 
       const dup = getDb()
         .prepare(
           'SELECT 1 FROM battle_tracking WHERE discord_guild_id = ? AND track_type = ? AND alliance_id = ?',
         )
-        .get(gid(ix.guildId), 'alliance', String(allianceId));
+        .get(gid(ix.guildId), 'alliance', resolved.allianceId);
       if (dup) {
         return ix.reply({ content: '❌ Esa alianza ya está en seguimiento.', ephemeral: true });
       }
@@ -270,14 +310,19 @@ const commands = [
             discord_guild_id, track_type, channel_id, albion_guild_id, alliance_id, alliance_tag, sent_battles
           ) VALUES (?, 'alliance', ?, ?, ?, ?, '[]')
         `)
-        .run(gid(ix.guildId), String(canal.id), gremioId, String(allianceId), allianceTag);
+        .run(
+          gid(ix.guildId),
+          String(canal.id),
+          resolved.albionGuildId,
+          resolved.allianceId,
+          resolved.allianceTag,
+        );
 
-      await seedBattles(getDb, r.lastInsertRowid, gremioId);
+      await seedBattles(getDb, r.lastInsertRowid, resolved.albionGuildId);
 
       await ix.reply({
         content:
-          `✅ Seguimiento de alianza **${allianceTag}** activo\n` +
-          `Gremio referencia: **${check.data.Name}**\n` +
+          `✅ Seguimiento de alianza **${resolved.allianceTag}** activo\n` +
           `Canal: ${canal}`,
         ephemeral: false,
       });
@@ -325,6 +370,8 @@ const commands = [
 module.exports = {
   id: 'battle',
   commands,
+  resolveBattleTrackInput,
+  seedBattles,
 
   onGuildRemove(guildId, { getDb }) {
     getDb().prepare('DELETE FROM battle_tracking WHERE discord_guild_id = ?').run(gid(guildId));
