@@ -32,6 +32,100 @@ function font(size, bold = false) {
   return bold ? `bold ${size}px ${fam}` : `${size}px ${fam}`;
 }
 
+const IMAGE_CACHE = new Map();
+const IMAGE_CACHE_MAX = 600;
+const IMAGE_FETCH_CONCURRENCY = Math.max(2, parseInt(process.env.KILL_IMAGE_CONCURRENCY || '4', 10) || 4);
+const IMAGE_FETCH_RETRIES = Math.max(1, parseInt(process.env.KILL_IMAGE_RETRIES || '3', 10) || 3);
+const IMAGE_FETCH_TIMEOUT_MS = Math.max(8000, parseInt(process.env.KILL_IMAGE_TIMEOUT_MS || '18000', 10) || 18000);
+
+function itemCacheKey(item) {
+  const quality = Math.max(1, Math.min(5, item?.Quality || 1));
+  return `${item.Type}|${quality}`;
+}
+
+function cacheGetItem(key) {
+  if (!IMAGE_CACHE.has(key)) return undefined;
+  const img = IMAGE_CACHE.get(key);
+  IMAGE_CACHE.delete(key);
+  IMAGE_CACHE.set(key, img);
+  return img;
+}
+
+function cacheSetItem(key, img) {
+  if (IMAGE_CACHE.size >= IMAGE_CACHE_MAX) {
+    const oldest = IMAGE_CACHE.keys().next().value;
+    IMAGE_CACHE.delete(oldest);
+  }
+  IMAGE_CACHE.set(key, img);
+}
+
+async function mapWithConcurrency(items, fn, concurrency) {
+  if (!items.length) return [];
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  const workers = Math.min(concurrency, items.length);
+  await Promise.all(Array.from({ length: workers }, () => worker()));
+  return results;
+}
+
+async function fetchItemImageBuffer(item) {
+  const quality = Math.max(1, Math.min(5, item.Quality || 1));
+  const url = `https://render.albiononline.com/v1/item/${item.Type}?quality=${quality}&size=217`;
+  const r = await fetch(url, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
+  if (r.status !== 200) throw new Error(`HTTP ${r.status}`);
+  return Buffer.from(await r.arrayBuffer());
+}
+
+async function loadItemImage(item) {
+  if (!item?.Type) return null;
+  const key = itemCacheKey(item);
+  const cached = cacheGetItem(key);
+  if (cached !== undefined) return cached;
+
+  for (let attempt = 0; attempt < IMAGE_FETCH_RETRIES; attempt++) {
+    try {
+      const buf = await fetchItemImageBuffer(item);
+      const img = await loadImage(buf);
+      cacheSetItem(key, img);
+      return img;
+    } catch {
+      if (attempt + 1 < IMAGE_FETCH_RETRIES) {
+        await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+      }
+    }
+  }
+  cacheSetItem(key, null);
+  return null;
+}
+
+function collectEquipmentItems(equipment) {
+  const eq = equipment && typeof equipment === 'object' ? equipment : {};
+  return Object.values(eq).filter((it) => it && it.Type);
+}
+
+async function preloadItemImages(items) {
+  const unique = new Map();
+  for (const item of items) {
+    if (!item?.Type) continue;
+    const key = itemCacheKey(item);
+    if (!unique.has(key)) unique.set(key, item);
+  }
+  const list = [...unique.values()];
+  await mapWithConcurrency(list, (item) => loadItemImage(item), IMAGE_FETCH_CONCURRENCY);
+}
+
+function getCachedItemImage(item) {
+  if (!item?.Type) return null;
+  const img = cacheGetItem(itemCacheKey(item));
+  return img || null;
+}
+
 async function getItemPrice(itemId) {
   if (!itemId) return 0;
   try {
@@ -44,20 +138,6 @@ async function getItemPrice(itemId) {
     return valid.length ? Math.min(...valid) : 0;
   } catch {
     return 0;
-  }
-}
-
-async function loadItemImage(item) {
-  if (!item?.Type) return null;
-  try {
-    const quality = Math.max(1, Math.min(5, item.Quality || 1));
-    const url = `https://render.albiononline.com/v1/item/${item.Type}?quality=${quality}&size=217`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(12_000) });
-    if (r.status !== 200) return null;
-    const buf = Buffer.from(await r.arrayBuffer());
-    return loadImage(buf);
-  } catch {
-    return null;
   }
 }
 
@@ -135,18 +215,18 @@ function parseTimestamp(ts) {
   }
 }
 
-async function pasteItem(ctx, x, y, item, size) {
+function pasteItem(ctx, x, y, item, size) {
   if (!item) return;
   const type = item.Type || '';
   if (!type || type.toUpperCase().includes('TRASH')) return;
-  const img = await loadItemImage(item);
+  const img = getCachedItemImage(item);
   if (!img) return;
   ctx.drawImage(img, x, y, size, size);
 }
 
-async function pasteItemGhost(ctx, x, y, item, size) {
+function pasteItemGhost(ctx, x, y, item, size) {
   if (!item) return;
-  const img = await loadItemImage(item);
+  const img = getCachedItemImage(item);
   if (!img) return;
   ctx.save();
   ctx.globalAlpha = 0.25;
@@ -154,7 +234,7 @@ async function pasteItemGhost(ctx, x, y, item, size) {
   ctx.restore();
 }
 
-async function drawEquipmentGrid(ctx, startX, startY, equipment, isKiller, spacing, itemSize) {
+function drawEquipmentGrid(ctx, startX, startY, equipment, isKiller, spacing, itemSize) {
   const positions = {
     Bag: [0, 0],
     Head: [1, 0],
@@ -173,23 +253,24 @@ async function drawEquipmentGrid(ctx, startX, startY, equipment, isKiller, spaci
   const offHand = eq.OffHand;
   const is2h = mainHand?.Type && (!offHand || !offHand.Type);
 
-  const tasks = [];
   for (const [slot, [col, row]] of Object.entries(positions)) {
     const x = startX + col * spacing;
     const y = startY + row * spacing;
     if (slot === 'OffHand' && is2h) {
-      tasks.push(pasteItemGhost(ctx, x, y, mainHand, itemSize));
+      pasteItemGhost(ctx, x, y, mainHand, itemSize);
     } else {
-      tasks.push(pasteItem(ctx, x, y, eq[slot], itemSize));
+      pasteItem(ctx, x, y, eq[slot], itemSize);
     }
   }
-  await Promise.all(tasks);
 }
 
-async function processInvItem(ctx, x, y, item, size) {
+function drawInvItem(ctx, x, y, item, size) {
+  const img = getCachedItemImage(item);
+  if (img) ctx.drawImage(img, x, y, size, size);
+}
+
+async function getInvItemPrice(item) {
   try {
-    const img = await loadItemImage(item);
-    if (img) ctx.drawImage(img, x, y, size, size);
     const price = await getItemPrice(item.Type || '');
     const count = item.Count != null ? Number(item.Count) : 1;
     return price * count;
@@ -290,9 +371,17 @@ async function buildKillNotificationImages(killData, entityConfig) {
   const alliedParticipants = getAlliedParticipants(killData);
 
   const equipment = victim.Equipment || {};
+  const imageItems = [
+    ...collectEquipmentItems(killer.Equipment),
+    ...collectEquipmentItems(victim.Equipment),
+    ...inventory,
+    ...alliedParticipants.filter((p) => p.weapon?.Type).map((p) => p.weapon),
+  ];
   const priceTasks = Object.values(equipment)
     .filter((it) => it && it.Type)
     .map((it) => getItemPrice(it.Type));
+
+  await preloadItemImages(imageItems);
   const prices = priceTasks.length ? await Promise.all(priceTasks) : [];
   const totalEquipmentValue = prices.reduce((s, p) => s + (p > 0 ? p : 0), 0);
   const fame = killData.TotalVictimKillFame || 0;
@@ -348,8 +437,8 @@ async function buildKillNotificationImages(killData, entityConfig) {
   drawCentered(ctx, CENTER_X, invStartPreview - 60, timestampDisplay, fontTs, TEXT);
 
   const equipY = infoY + 100;
-  await drawEquipmentGrid(ctx, LEFT_PANEL_X, equipY, killer.Equipment, true, EQUIP_SPACING, EQUIP_ITEM_SIZE);
-  await drawEquipmentGrid(ctx, RIGHT_PANEL_X, equipY, victim.Equipment, false, EQUIP_SPACING, EQUIP_ITEM_SIZE);
+  drawEquipmentGrid(ctx, LEFT_PANEL_X, equipY, killer.Equipment, true, EQUIP_SPACING, EQUIP_ITEM_SIZE);
+  drawEquipmentGrid(ctx, RIGHT_PANEL_X, equipY, victim.Equipment, false, EQUIP_SPACING, EQUIP_ITEM_SIZE);
 
   const invStartY = equipY + 4 * EQUIP_SPACING + 40;
   ctx.strokeStyle = LINE;
@@ -378,18 +467,17 @@ async function buildKillNotificationImages(killData, entityConfig) {
       ctx.stroke();
     }
 
-    const invResults = await Promise.all(
-      inventory.map((item, idx) => {
-        const col = idx % INV_ITEMS_PER_ROW;
-        const row = Math.floor(idx / INV_ITEMS_PER_ROW);
-        return processInvItem(
-          ctx,
-          invX + col * INV_SPACING,
-          invY + row * INV_SPACING,
-          item,
-          INV_ITEM_SIZE,
-        );
-      }),
+    for (let idx = 0; idx < inventory.length; idx++) {
+      const item = inventory[idx];
+      const col = idx % INV_ITEMS_PER_ROW;
+      const row = Math.floor(idx / INV_ITEMS_PER_ROW);
+      drawInvItem(ctx, invX + col * INV_SPACING, invY + row * INV_SPACING, item, INV_ITEM_SIZE);
+    }
+
+    const invResults = await mapWithConcurrency(
+      inventory,
+      (item) => getInvItemPrice(item),
+      IMAGE_FETCH_CONCURRENCY,
     );
     invValue = invResults.reduce((s, v) => s + v, 0);
 
@@ -437,14 +525,10 @@ async function buildKillNotificationImages(killData, entityConfig) {
 
     for (const p of sorted) {
       if (p.weapon?.Type) {
-        try {
-          const wImg = await loadItemImage(p.weapon);
-          if (wImg) {
-            const iconY = rowY + (rowHeight - WEAPON_ICON_SIZE) / 2;
-            sctx.drawImage(wImg, 20, iconY, WEAPON_ICON_SIZE, WEAPON_ICON_SIZE);
-          }
-        } catch {
-          /* sin icono */
+        const wImg = getCachedItemImage(p.weapon);
+        if (wImg) {
+          const iconY = rowY + (rowHeight - WEAPON_ICON_SIZE) / 2;
+          sctx.drawImage(wImg, 20, iconY, WEAPON_ICON_SIZE, WEAPON_ICON_SIZE);
         }
       }
 

@@ -42,6 +42,77 @@ async function deleteUtcChannel(client, row) {
   }
 }
 
+function isUtcClockChannelName(name) {
+  return /^🕐\s+\d{2}:\d{2}(:\d{2})?\s+UTC$/i.test(String(name || '').trim());
+}
+
+function scanUtcClockChannels(guild) {
+  if (!guild?.channels?.cache) return [];
+  return guild.channels.cache
+    .filter((ch) => ch.type === ChannelType.GuildVoice && isUtcClockChannelName(ch.name))
+    .map((ch) => ({ channelId: ch.id, channelName: ch.name }))
+    .sort((a, b) => a.channelName.localeCompare(b.channelName));
+}
+
+async function listUtcClocksInGuild(client, getDb, guildId) {
+  const gid = String(guildId);
+  const guild = await client.guilds.fetch(gid).catch(() => null);
+  if (!guild) return [];
+
+  const tracked = getUtcClock(getDb, gid);
+  const byId = new Map();
+
+  for (const ch of scanUtcClockChannels(guild)) {
+    byId.set(ch.channelId, {
+      channelId: ch.channelId,
+      channelName: ch.channelName,
+      tracked: tracked?.channel_id === ch.channelId,
+    });
+  }
+
+  if (tracked?.channel_id && !byId.has(tracked.channel_id)) {
+    const ch = await client.channels.fetch(tracked.channel_id).catch(() => null);
+    byId.set(tracked.channel_id, {
+      channelId: tracked.channel_id,
+      channelName: ch?.name || `Canal ${tracked.channel_id}`,
+      tracked: true,
+      missing: !ch,
+    });
+  }
+
+  return [...byId.values()];
+}
+
+async function removeUtcChannelById(client, getDb, guildId, channelId, log) {
+  const gid = String(guildId);
+  const cid = String(channelId);
+  const row = getUtcClock(getDb, gid);
+
+  if (row?.channel_id === cid) {
+    await deleteUtcChannel(client, row);
+    clearUtcClock(getDb, gid);
+    log.info(`UTC voice clock quitado en guild ${gid}`);
+    return true;
+  }
+
+  const ch = await client.channels.fetch(cid).catch(() => null);
+  if (!ch || ch.guildId !== gid) return false;
+  await ch.delete().catch(() => {});
+  log.info(`UTC reloj huérfano eliminado ${cid} en guild ${gid}`);
+  return true;
+}
+
+async function removeAllUtcClocksFromGuild(client, getDb, guildId, log) {
+  const clocks = await listUtcClocksInGuild(client, getDb, guildId);
+  if (!clocks.length) return 0;
+  let n = 0;
+  for (const c of clocks) {
+    if (await removeUtcChannelById(client, getDb, guildId, c.channelId, log)) n += 1;
+  }
+  clearUtcClock(getDb, String(guildId));
+  return n;
+}
+
 async function refreshUtcClock(client, getDb, guildId, log) {
   const row = getUtcClock(getDb, guildId);
   if (!row) return;
@@ -111,13 +182,12 @@ async function setupUtcInGuild(client, getDb, guildId, log, { categoryId } = {})
   return { channelId: channel.id };
 }
 
-async function removeUtcFromGuild(client, getDb, guildId, log) {
-  const row = getUtcClock(getDb, guildId);
-  if (!row) return false;
-  await deleteUtcChannel(client, row);
-  clearUtcClock(getDb, guildId);
-  log.info(`UTC voice clock quitado en guild ${guildId}`);
-  return true;
+async function removeUtcFromGuild(client, getDb, guildId, log, channelId = null) {
+  if (channelId) {
+    return removeUtcChannelById(client, getDb, guildId, channelId, log);
+  }
+  const removed = await removeAllUtcClocksFromGuild(client, getDb, guildId, log);
+  return removed > 0;
 }
 
 async function setupUtcChannel(ix, { getDb, log }) {
@@ -144,6 +214,11 @@ module.exports = {
   utcTimeString,
   formatUtcVoiceChannelName,
   getUtcClock,
+  isUtcClockChannelName,
+  scanUtcClockChannels,
+  listUtcClocksInGuild,
+  removeUtcChannelById,
+  removeAllUtcClocksFromGuild,
   setupUtcInGuild,
   removeUtcFromGuild,
   setupUtcChannel,

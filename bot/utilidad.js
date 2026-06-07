@@ -12,7 +12,8 @@ const {
   UTC_TICK_MS,
   utcTimeString,
   setupUtcChannel,
-  removeUtcFromGuild,
+  listUtcClocksInGuild,
+  removeUtcChannelById,
   tickAllUtcClocks,
 } = require('./utcClock');
 
@@ -119,7 +120,8 @@ const CATEGORIES = {
         name: '/utc canal',
         desc: 'Crea un canal de voz con la hora UTC en el nombre (Mod). Se actualiza cada 10 min.',
       },
-      { name: '/utc quitar', desc: 'Elimina el canal reloj UTC del servidor (Mod).' },
+      { name: '/utc relojes', desc: 'Lista los canales reloj UTC activos en el servidor (Mod).' },
+      { name: '/utc quitar', desc: 'Elimina un canal reloj UTC (Mod). Elige cuál si hay varios.' },
       { name: '/sugerencia', desc: 'Envía una sugerencia al desarrollador del bot.' },
       { name: '/ayuda', desc: 'Menú de comandos de Nexus.' },
     ],
@@ -147,7 +149,8 @@ const commands = [
       .addSubcommand((s) =>
         s.setName('canal').setDescription('Crea un canal de voz con la hora UTC en el nombre'),
       )
-      .addSubcommand((s) => s.setName('quitar').setDescription('Elimina el canal reloj UTC')),
+      .addSubcommand((s) => s.setName('relojes').setDescription('Lista canales reloj UTC activos'))
+      .addSubcommand((s) => s.setName('quitar').setDescription('Elimina un canal reloj UTC')),
     async run(ix, ctx) {
       const sub = ix.options.getSubcommand();
       if (sub === 'hora') {
@@ -162,14 +165,58 @@ const commands = [
         await setupUtcChannel(ix, ctx);
         return;
       }
-      if (sub === 'quitar') {
-        const { getDb, log } = ctx;
-        const removed = await removeUtcFromGuild(ix.client, getDb, ix.guildId, log);
-        if (!removed) {
-          await ix.reply({ content: 'ℹ️ No hay reloj UTC configurado en este servidor.', ephemeral: true });
+      const { getDb, log, client } = ctx;
+      const clocks = await listUtcClocksInGuild(client, getDb, ix.guildId);
+
+      if (sub === 'relojes') {
+        if (!clocks.length) {
+          await ix.reply({ content: 'ℹ️ No hay canales reloj UTC en este servidor.', ephemeral: true });
           return;
         }
-        await ix.reply({ content: '✅ Reloj UTC eliminado.', ephemeral: true });
+        const lines = clocks.map(
+          (c) => `• **${c.channelName}** \`${c.channelId}\`${c.tracked ? ' _(activo en bot)_' : ''}`,
+        );
+        await ix.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('🕐 Relojes UTC activos')
+              .setDescription(lines.join('\n'))
+              .setColor(Colors.Blurple)
+              .setFooter({ text: 'Usa /utc quitar para eliminar uno.' }),
+          ],
+          ephemeral: true,
+        });
+        return;
+      }
+
+      if (sub === 'quitar') {
+        if (!clocks.length) {
+          await ix.reply({ content: 'ℹ️ No hay canales reloj UTC en este servidor.', ephemeral: true });
+          return;
+        }
+        if (clocks.length === 1) {
+          await removeUtcChannelById(client, getDb, ix.guildId, clocks[0].channelId, log);
+          await ix.reply({
+            content: `✅ Reloj eliminado: **${clocks[0].channelName}**`,
+            ephemeral: true,
+          });
+          return;
+        }
+        const menu = new StringSelectMenuBuilder()
+          .setCustomId(`${PREFIX}:utc-del`)
+          .setPlaceholder('Elige el reloj a eliminar')
+          .addOptions(
+            clocks.slice(0, 25).map((c) => ({
+              label: c.channelName.slice(0, 100),
+              value: c.channelId,
+              description: c.tracked ? 'Registrado en el bot' : 'Canal huérfano',
+            })),
+          );
+        await ix.reply({
+          content: 'Selecciona el canal reloj que quieres eliminar:',
+          components: [new ActionRowBuilder().addComponents(menu)],
+          ephemeral: true,
+        });
       }
     },
   },
@@ -245,6 +292,25 @@ module.exports = {
   },
 
   async handleInteraction(ix, ctx) {
+    if (ix.isStringSelectMenu() && ix.customId === `${PREFIX}:utc-del`) {
+      if (!ix.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+        await ix.reply({ content: '❌ Sin permiso.', ephemeral: true });
+        return true;
+      }
+      const channelId = ix.values[0];
+      const { getDb, log, client } = ctx;
+      const clocks = await listUtcClocksInGuild(client, getDb, ix.guildId);
+      const picked = clocks.find((c) => c.channelId === channelId);
+      const ok = await removeUtcChannelById(client, getDb, ix.guildId, channelId, log);
+      await ix.update({
+        content: ok
+          ? `✅ Reloj eliminado: **${picked?.channelName || channelId}**`
+          : '❌ No se pudo eliminar ese reloj.',
+        components: [],
+      });
+      return true;
+    }
+
     if (ix.isStringSelectMenu() && ix.customId === `${PREFIX}:help`) {
       const key = ix.values[0];
       if (!CATEGORIES[key]) {

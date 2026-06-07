@@ -122,20 +122,18 @@ function isOurDeath(event, entity) {
 
 async function sendKillNotification(channel, event, entity, log, bypassDedupe = false) {
   const eventId = event.EventId != null ? String(event.EventId) : null;
-
   const cfg = entityConfig(entity);
-  const builtPreview = await buildKillNotificationImages(event, cfg);
-  if (builtPreview.skip) return false;
-  const eventKind = builtPreview.isKill ? 'kill' : 'death';
-
-  if (!bypassDedupe && eventId) {
-    const dedupe = `${entity.entity_type}:${entity.albion_entity_id}:${eventKind}:${eventId}`;
-    if (recentEvents.has(dedupe)) return true;
-  }
 
   for (let attempt = 0; attempt < notificationRetries; attempt++) {
     try {
-      const built = builtPreview;
+      const built = await buildKillNotificationImages(event, cfg);
+      if (built.skip) return false;
+      const eventKind = built.isKill ? 'kill' : 'death';
+
+      if (!bypassDedupe && eventId) {
+        const dedupe = `${entity.entity_type}:${entity.albion_entity_id}:${eventKind}:${eventId}`;
+        if (recentEvents.has(dedupe)) return true;
+      }
 
       if (maxNotificationsPerCycle > 0 && currentCycleNotifications >= maxNotificationsPerCycle) {
         limitReached = true;

@@ -543,44 +543,89 @@ function initModuleModals(deps) {
     if (!r.ok) return alert('No se pudo cargar la configuración UTC');
     const cfg = await r.json();
     const mins = cfg.renameMinutes || 10;
-    const active = cfg.channelId
-      ? `<p class="modal-meta">Reloj activo — ID canal: <code>${escapeHtml(cfg.channelId)}</code></p>`
-      : '<p class="modal-meta">No hay reloj UTC activo.</p>';
-    openModal(
-      'Reloj UTC',
-      `<div class="modal-section">
-        ${active}
-        <p class="modal-meta">Crea un <strong>canal de voz</strong> cuyo nombre muestra la hora UTC. Se renombra cada ${mins} min (límite de Discord).</p>
-        ${categorySelect('utc-cat', '', 'Categoría (opcional)')}
-        <div class="form-actions">
-          <button type="button" class="btn btn-accent" data-act="save">Crear canal reloj</button>
-          <button type="button" class="btn btn-danger" data-act="clear">Quitar reloj</button>
-        </div>
-      </div>`,
-    );
-    body.querySelector('[data-act="save"]').addEventListener('click', async () => {
-      const cat = document.getElementById('utc-cat').value || null;
-      const res = await api(`/api/guilds/${modalGuildId}/utc`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ create: true, categoryId: cat }),
+    const clocks = cfg.clocks || [];
+
+    function renderClockList() {
+      if (!clocks.length) {
+        return '<p class="modal-meta">No hay relojes UTC activos.</p>';
+      }
+      return `<div class="modal-section"><h3>Relojes activos (${clocks.length})</h3>${clocks
+        .map(
+          (c) =>
+            `<div class="capsule"><span class="capsule-name">🔊 ${escapeHtml(c.channelName)}${c.tracked ? ' · bot' : ''}</span>
+            <button type="button" class="icon-btn" data-utc-del="${escapeHtml(c.channelId)}" title="Eliminar">✕</button></div>`,
+        )
+        .join('')}</div>`;
+    }
+
+    function renderModal() {
+      openModal(
+        'Reloj UTC',
+        `${renderClockList()}
+        <div class="modal-section">
+          <p class="modal-meta">Crea un <strong>canal de voz</strong> cuyo nombre muestra la hora UTC. Se renombra cada ${mins} min (límite de Discord).</p>
+          ${categorySelect('utc-cat', '', 'Categoría (opcional)')}
+          <div class="form-actions">
+            <button type="button" class="btn btn-accent" data-act="save">Crear canal reloj</button>
+            ${clocks.length ? '<button type="button" class="btn btn-danger" data-act="clear-all">Quitar todos</button>' : ''}
+          </div>
+        </div>`,
+      );
+      bindUtilidadActions();
+    }
+
+    function bindUtilidadActions() {
+      body.querySelector('[data-act="save"]')?.addEventListener('click', async () => {
+        const cat = document.getElementById('utc-cat')?.value || null;
+        const res = await api(`/api/guilds/${modalGuildId}/utc`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ create: true, categoryId: cat }),
+        });
+        if (res.ok) {
+          alert('Canal de voz reloj UTC creado.');
+          const fresh = await api(`/api/guilds/${modalGuildId}/utc`);
+          if (fresh.ok) {
+            const d = await fresh.json();
+            clocks.length = 0;
+            clocks.push(...(d.clocks || []));
+            renderModal();
+          } else closeModal();
+        } else alert((await res.json().catch(() => ({}))).error || 'Error');
       });
-      if (res.ok) {
-        alert('Canal de voz reloj UTC creado.');
-        closeModal();
-      } else alert((await res.json().catch(() => ({}))).error || 'Error');
-    });
-    body.querySelector('[data-act="clear"]').addEventListener('click', async () => {
-      const res = await api(`/api/guilds/${modalGuildId}/utc`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ create: false }),
+      body.querySelector('[data-act="clear-all"]')?.addEventListener('click', async () => {
+        if (!confirm(`¿Eliminar los ${clocks.length} reloj(es) UTC?`)) return;
+        const res = await api(`/api/guilds/${modalGuildId}/utc`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ create: false }),
+        });
+        if (res.ok) {
+          alert('Relojes UTC eliminados.');
+          closeModal();
+        } else alert((await res.json().catch(() => ({}))).error || 'Error');
       });
-      if (res.ok) {
-        alert('Canal reloj UTC eliminado.');
-        closeModal();
-      } else alert((await res.json().catch(() => ({}))).error || 'Error');
-    });
+      body.querySelectorAll('[data-utc-del]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const channelId = btn.getAttribute('data-utc-del');
+          if (!channelId || !confirm('¿Eliminar este reloj UTC?')) return;
+          const res = await api(`/api/guilds/${modalGuildId}/utc`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ create: false, channelId }),
+          });
+          if (!res.ok) {
+            alert((await res.json().catch(() => ({}))).error || 'Error');
+            return;
+          }
+          const idx = clocks.findIndex((c) => c.channelId === channelId);
+          if (idx >= 0) clocks.splice(idx, 1);
+          renderModal();
+        });
+      });
+    }
+
+    renderModal();
   }
 
   async function ensureVoiceChannels() {

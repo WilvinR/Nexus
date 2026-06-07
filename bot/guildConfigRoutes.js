@@ -1,6 +1,6 @@
 const { ChannelType, PermissionFlagsBits } = require('discord.js');
 const { albionGuild, albionAlliance, albionPlayer } = require('./albionApi');
-const { getUtcClock, setupUtcInGuild, removeUtcFromGuild, UTC_TICK_MS } = require('./utcClock');
+const { getUtcClock, setupUtcInGuild, removeUtcFromGuild, listUtcClocksInGuild, UTC_TICK_MS } = require('./utcClock');
 const {
   getConfig: getSancionesConfig,
   setChannel: setSancionesChannel,
@@ -651,10 +651,12 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
   app.get('/api/guilds/:guildId/utc', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
+    const clocks = await listUtcClocksInGuild(client, getDb, ctx.guildId);
     const row = getUtcClock(getDb, ctx.guildId);
     res.json({
       ok: true,
-      channelId: row?.channel_id ?? null,
+      channelId: row?.channel_id ?? clocks[0]?.channelId ?? null,
+      clocks,
       renameMinutes: UTC_TICK_MS / 60000,
     });
   });
@@ -673,8 +675,12 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
       }
     }
 
-    await removeUtcFromGuild(client, getDb, gid(ctx.guildId), log);
-    res.json({ ok: true, channelId: null });
+    const channelId = req.body?.channelId ? String(req.body.channelId).trim() : null;
+    const removed = await removeUtcFromGuild(client, getDb, gid(ctx.guildId), log, channelId);
+    if (channelId && !removed) {
+      return res.status(404).json({ error: 'Reloj no encontrado' });
+    }
+    res.json({ ok: true, channelId: null, removed });
   });
 
   app.get('/api/guilds/:guildId/sanciones', sessionAuth, async (req, res) => {
