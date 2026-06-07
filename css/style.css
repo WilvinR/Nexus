@@ -14,6 +14,7 @@
   --green: #5eead4;
   --text: #eef4fa;
   --muted: #7a8fa6;
+  --heading-section: #e4edf5;
   --border: rgba(0, 229, 255, 0.16);
   --border-gold: rgba(228, 184, 74, 0.35);
   --radius-sm: 8px;
@@ -1005,12 +1006,27 @@ footer {
 }
 
 .modal-section { margin-bottom: 20px; }
-.modal-section h3 {
-  font-family: 'Bebas Neue', sans-serif;
-  letter-spacing: 1px;
-  color: var(--accent);
-  margin: 0 0 10px;
-  font-size: 1.1rem;
+.modal-section h3,
+.chart-heading,
+.admin-panel h3,
+#ann-history h3 {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--heading-section);
+  margin: 0 0 12px;
+  padding: 0 0 8px 11px;
+  border-left: 3px solid var(--gold);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  line-height: 1.35;
+  text-shadow: none;
+}
+
+.chart-heading {
+  margin: 24px 0 10px;
+  text-align: left;
 }
 
 .modal-meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 10px; }
@@ -1333,16 +1349,8 @@ footer {
 }
 
 .dash-user code {
-  color: var(--accent);
+  color: var(--steel);
   font-size: 0.85rem;
-}
-
-.chart-heading {
-  font-family: 'Bebas Neue', sans-serif;
-  letter-spacing: 1px;
-  color: var(--accent);
-  margin: 24px 0 10px;
-  text-align: left;
 }
 
 .admin-chart {
@@ -1813,9 +1821,12 @@ footer {
 }
 
 .sanciones-table th {
-  color: var(--accent);
+  color: var(--heading-section);
   font-family: 'Rajdhani', sans-serif;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.82rem;
 }
 
 .sanc-log-list {
@@ -1930,7 +1941,7 @@ footer {
 }
 
 .evt-roles-title {
-  font-size: 1rem;
+  font-size: inherit;
   margin: 0 0 6px;
 }
 
