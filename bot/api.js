@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const { MODULES, getGuildModuleStates, setModuleEnabled } = require('./modules');
 const { registerGuildConfigRoutes } = require('./guildConfigRoutes');
-const { registerAdminRoutes, logSystem, isBotOwner, getBotOwnerIds } = require('./adminRoutes');
+const { registerAdminRoutes, logSystem, isBotOwner, getBotOwnerIds, parseYoutubeId } = require('./adminRoutes');
 const { buildInviteUrl, getClientId } = require('./invite');
 
 let server = null;
@@ -337,7 +337,8 @@ function start(client, log, getDb, hooks = {}) {
     if (!access.ok) return res.status(access.status).json({ error: access.error });
     const enabled = !!req.body?.enabled;
     setModuleEnabled(getDb, access.guildId, moduleId, enabled);
-    logSystem(getDb, 'info', `Módulo ${moduleId} ${enabled ? 'activado' : 'desactivado'}`, {
+    const gName = client.guilds.cache.get(access.guildId)?.name || access.guildId;
+    logSystem(getDb, 'info', `Módulo ${moduleId} ${enabled ? 'activado' : 'desactivado'} en ${gName}`, {
       guildId: access.guildId,
       extra: { moduleId, enabled },
     });
@@ -354,6 +355,72 @@ function start(client, log, getDb, hooks = {}) {
       guilds: client.guilds?.cache?.size ?? 0,
       modules: MODULES.map((m) => m.id),
     });
+  });
+
+  const ALBION_API = 'https://gameinfo.albiononline.com/api/gameinfo';
+
+  async function albionSearchQuery(q) {
+    const r = await fetch(`${ALBION_API}/search?q=${encodeURIComponent(q)}`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!r.ok) return null;
+    return r.json();
+  }
+
+  app.get('/api/help/videos', sessionAuth, (req, res) => {
+    const rows = getDb()
+      .prepare('SELECT * FROM help_videos ORDER BY sort_order ASC, id ASC')
+      .all();
+    res.json({
+      ok: true,
+      videos: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        youtubeUrl: r.youtube_url,
+        youtubeId: parseYoutubeId(r.youtube_url),
+      })),
+    });
+  });
+
+  app.get('/api/albion/search/players', sessionAuth, async (req, res) => {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.status(400).json({ error: 'Escribe al menos 2 caracteres' });
+    try {
+      const data = await albionSearchQuery(q);
+      if (!data) return res.status(502).json({ error: 'API de Albion no disponible' });
+      const players = (data.players || []).slice(0, 15).map((p) => ({
+        id: p.Id,
+        name: p.Name,
+        guildName: p.GuildName || null,
+        guildId: p.GuildId || null,
+        allianceName: p.AllianceName || null,
+        killFame: p.KillFame ?? null,
+        deathFame: p.DeathFame ?? null,
+      }));
+      res.json({ ok: true, players });
+    } catch (e) {
+      res.status(502).json({ error: e.message || 'Error de búsqueda' });
+    }
+  });
+
+  app.get('/api/albion/search/guilds', sessionAuth, async (req, res) => {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.status(400).json({ error: 'Escribe al menos 2 caracteres' });
+    try {
+      const data = await albionSearchQuery(q);
+      if (!data) return res.status(502).json({ error: 'API de Albion no disponible' });
+      const guilds = (data.guilds || []).slice(0, 15).map((g) => ({
+        id: g.Id,
+        name: g.Name,
+        allianceName: g.AllianceName || null,
+        allianceTag: g.AllianceTag || null,
+        memberCount: g.MemberCount ?? null,
+        killFame: g.KillFame ?? null,
+      }));
+      res.json({ ok: true, guilds });
+    } catch (e) {
+      res.status(502).json({ error: e.message || 'Error de búsqueda' });
+    }
   });
 
   registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, assertGuildAccess });

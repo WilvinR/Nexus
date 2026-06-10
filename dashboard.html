@@ -28,25 +28,57 @@
       <div class="dash-head">
         <div>
           <div class="section-label">// CONFIGURACIÓN</div>
-          <h1 class="dash-title">TUS SERVIDORES</h1>
+          <h1 class="dash-title" id="dash-page-title">TUS SERVIDORES</h1>
           <p class="dash-user owner-setup" id="user-label"></p>
         </div>
         <button type="button" class="btn btn-accent" id="btn-logout">Cerrar sesión</button>
       </div>
+
+      <nav class="dash-subnav" id="dash-subnav" aria-label="Secciones del dashboard">
+        <button type="button" class="dash-subnav-btn active" data-view="servers">Servidores</button>
+        <button type="button" class="dash-subnav-btn" data-view="help">Ayuda</button>
+        <button type="button" class="dash-subnav-btn" data-view="search">Buscar</button>
+      </nav>
+
       <p class="dash-hint" id="dash-hint">Activa o desactiva módulos por servidor.</p>
 
-      <div id="guild-grid" class="guild-grid"></div>
+      <div id="view-servers">
+        <div id="guild-grid" class="guild-grid"></div>
 
-      <section id="guild-config" class="guild-config hidden">
-        <button type="button" class="btn-back" id="btn-back" aria-label="Volver a servidores">← Servidores</button>
-        <header class="guild-config-head">
-          <div id="guild-config-avatar" class="guild-avatar"></div>
-          <div>
-            <h2 class="guild-config-title" id="guild-config-name"></h2>
-            <p class="guild-config-sub">Módulos de este servidor</p>
+        <section id="guild-config" class="guild-config hidden">
+          <button type="button" class="btn-back" id="btn-back" aria-label="Volver a servidores">← Servidores</button>
+          <header class="guild-config-head">
+            <div id="guild-config-avatar" class="guild-avatar"></div>
+            <div>
+              <h2 class="guild-config-title" id="guild-config-name"></h2>
+              <p class="guild-config-sub">Módulos de este servidor</p>
+            </div>
+          </header>
+          <div id="mod-list" class="dash-mod-grid"></div>
+        </section>
+      </div>
+
+      <section id="view-help" class="dash-extra-view hidden">
+        <div class="modal-section">
+          <h3>Videos de ayuda</h3>
+          <p class="modal-meta">Tutoriales para configurar Nexus.</p>
+          <div id="help-videos-list"></div>
+        </div>
+      </section>
+
+      <section id="view-search" class="dash-extra-view hidden">
+        <div class="modal-section">
+          <h3>Buscar en Albion (Américas)</h3>
+          <div class="search-tabs">
+            <button type="button" class="btn btn-sm search-tab active" data-search="players">Jugadores</button>
+            <button type="button" class="btn btn-sm search-tab" data-search="guilds">Gremios</button>
           </div>
-        </header>
-        <div id="mod-list" class="dash-mod-grid"></div>
+          <label class="form-label">Nombre
+            <input class="form-input" id="albion-search-q" placeholder="Escribe el nombre…" autocomplete="off">
+          </label>
+          <button type="button" class="btn btn-accent btn-sm" id="albion-search-btn">Buscar</button>
+          <div id="albion-search-results" class="search-results"></div>
+        </div>
       </section>
     </section>
   </main>

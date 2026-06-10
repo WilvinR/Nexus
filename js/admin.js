@@ -595,6 +595,7 @@ async function loadErrors() {
                 <button type="button" class="btn btn-sm" data-copy="${esc(er.message)}">Copiar</button>
               </div>
               <p>${esc(er.message)}</p>
+              ${er.guildId ? `<p class="capsule-meta">Servidor: ${esc(er.guildName || 'Desconocido')}</p>` : ''}
               <pre class="error-stack">${esc(er.stack || '')}</pre>
             </div>`,
           )
@@ -644,7 +645,7 @@ async function loadSysLogs() {
               <span class="syslog-time">${new Date(l.createdAt).toLocaleString('es')}</span>
               <span class="syslog-lv">[${esc(l.level)}]</span>
               <span class="syslog-msg">${esc(l.message)}</span>
-              ${l.guildId ? `<code>${esc(l.guildId)}</code>` : ''}
+              ${l.guildId ? `<span class="syslog-guild">${esc(l.guildName || 'Servidor desconocido')}</span>` : ''}
             </div>`,
           )
           .join('')
@@ -655,6 +656,89 @@ async function loadSysLogs() {
     btn.addEventListener('click', () => render(btn.dataset.lv));
   });
   render('');
+}
+
+async function loadHelpVideosAdmin() {
+  const el = document.getElementById('tab-help');
+  el.innerHTML = `
+    <div class="modal-section">
+      <h3>Videos de ayuda</h3>
+      <p class="modal-meta">Los usuarios los ven en Dashboard → Ayuda. Solo título y URL de YouTube.</p>
+      <label class="form-label">Título<input class="form-input" id="hv-title" placeholder="Ej: Configurar Killboard"></label>
+      <label class="form-label">URL YouTube<input class="form-input" id="hv-url" placeholder="https://www.youtube.com/watch?v=..."></label>
+      <div class="form-actions">
+        <button type="button" class="btn btn-accent" id="hv-add">Agregar video</button>
+      </div>
+    </div>
+    <div id="hv-list" class="modal-section"></div>`;
+
+  async function renderList() {
+    const r = await api('/api/admin/help-videos');
+    const box = document.getElementById('hv-list');
+    if (!r.ok) {
+      box.innerHTML = '<p class="dash-empty">Error al cargar</p>';
+      return;
+    }
+    const { videos } = await r.json();
+    if (!videos.length) {
+      box.innerHTML = '<p class="dash-empty">No hay videos aún.</p>';
+      return;
+    }
+    box.innerHTML = videos
+      .map(
+        (v) => `<div class="capsule" data-id="${v.id}">
+          <span class="capsule-name">${esc(v.title)}</span>
+          <button type="button" class="icon-btn" data-hv-edit="${v.id}" title="Editar">✏️</button>
+          <button type="button" class="icon-btn" data-hv-del="${v.id}" title="Eliminar">✕</button>
+        </div>`,
+      )
+      .join('');
+
+    box.querySelectorAll('[data-hv-del]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('¿Eliminar este video?')) return;
+        await api(`/api/admin/help-videos/${btn.dataset.hvDel}`, { method: 'DELETE' });
+        renderList();
+      });
+    });
+    box.querySelectorAll('[data-hv-edit]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const vid = videos.find((x) => String(x.id) === btn.dataset.hvEdit);
+        if (!vid) return;
+        const title = prompt('Título', vid.title);
+        if (title == null) return;
+        const youtubeUrl = prompt('URL YouTube', vid.youtubeUrl);
+        if (youtubeUrl == null) return;
+        const res = await api(`/api/admin/help-videos/${vid.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: title.trim(), youtubeUrl: youtubeUrl.trim() }),
+        });
+        if (!res.ok) alert((await res.json().catch(() => ({}))).error || 'Error');
+        else renderList();
+      });
+    });
+  }
+
+  document.getElementById('hv-add').addEventListener('click', async () => {
+    const title = document.getElementById('hv-title').value.trim();
+    const youtubeUrl = document.getElementById('hv-url').value.trim();
+    if (!title || !youtubeUrl) return alert('Título y URL requeridos');
+    const res = await api('/api/admin/help-videos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, youtubeUrl }),
+    });
+    if (!res.ok) {
+      alert((await res.json().catch(() => ({}))).error || 'Error');
+      return;
+    }
+    document.getElementById('hv-title').value = '';
+    document.getElementById('hv-url').value = '';
+    renderList();
+  });
+
+  renderList();
 }
 
 async function loadServices() {
@@ -717,6 +801,7 @@ async function initAdmin() {
     if (tab === 'suggestions') await loadSuggestions();
     if (tab === 'errors') await loadErrors();
     if (tab === 'syslogs') await loadSysLogs();
+    if (tab === 'help') await loadHelpVideosAdmin();
     if (tab === 'services') await loadServices();
   });
 }

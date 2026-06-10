@@ -147,7 +147,7 @@ function parseQuery(query) {
   const nameParts = [];
 
   for (const part of parts) {
-    const m = part.match(/^t([2-8])(?:\.([0-3]))?$/);
+    const m = part.match(/^t([1-8])(?:\.([0-4]))?$/);
     if (m) {
       tier = parseInt(m[1], 10);
       if (m[2] != null) enchant = parseInt(m[2], 10);
@@ -163,7 +163,7 @@ function parseItemId(input) {
   const m = input
     .trim()
     .toUpperCase()
-    .match(/^(T([2-8])_[A-Z0-9_]+)(?:@([0-3]))?$/i);
+    .match(/^(T([1-8])_[A-Z0-9_]+)(?:@([0-4]))?$/i);
   if (!m) return null;
   const enchant = m[3] != null ? parseInt(m[3], 10) : 0;
   return {
@@ -174,7 +174,7 @@ function parseItemId(input) {
 }
 
 function buildItemId(uniqueName, tier, enchant) {
-  const base = uniqueName.replace(/^T[2-8]_/i, '').split('@')[0];
+  const base = uniqueName.replace(/^T[1-8]_/i, '').split('@')[0];
   const id = `T${tier}_${base}`;
   return enchant > 0 ? `${id}@${enchant}` : id;
 }
@@ -460,8 +460,10 @@ async function runPrecio(ix) {
   await ix.deferReply();
 
   const rawItem = ix.options.getString('item');
-  const tierOpt = ix.options.getInteger('tier');
-  const encOpt = ix.options.getInteger('encantamiento');
+  const tierStr = ix.options.getString('tier');
+  const encStr = ix.options.getString('encantamiento');
+  const tierOpt = tierStr != null ? parseInt(tierStr, 10) : null;
+  const encOpt = encStr != null ? parseInt(encStr, 10) : null;
 
   const direct = parseItemId(rawItem.trim());
   if (direct) {
@@ -478,9 +480,7 @@ async function runPrecio(ix) {
   const enchant = encOpt ?? parsed.enchant ?? 0;
 
   if (!tier) {
-    return ix.editReply(
-      '❌ Indica el tier en la búsqueda (ej: t6.2 Chaqueta real) o en la opción tier.',
-    );
+    return ix.editReply('❌ Elige el **tier** (T1–T8) en las opciones del comando.');
   }
 
   if (!parsed.itemName.trim()) {
@@ -509,29 +509,32 @@ async function runPrecio(ix) {
 
 const commands = [
   {
-    data: new SlashCommandBuilder()
-      .setName('precio')
-      .setDescription('Precios de mercado Américas — todas las ciudades y calidades')
-      .addStringOption((o) =>
-        o
-          .setName('item')
-          .setDescription('Ej: t6.2 Chaqueta real, o ID T6_ARMOR@2')
-          .setRequired(true),
-      )
-      .addIntegerOption((o) =>
-        o
-          .setName('tier')
-          .setDescription('Tier T2–T8 (si no lo pones en el nombre, ej. t6.2)')
-          .setMinValue(2)
-          .setMaxValue(8),
-      )
-      .addIntegerOption((o) =>
-        o
-          .setName('encantamiento')
-          .setDescription('0 = base, 1 = .1, 2 = .2, 3 = .3')
-          .setMinValue(0)
-          .setMaxValue(3),
-      ),
+    data: (() => {
+      const b = new SlashCommandBuilder()
+        .setName('precio')
+        .setDescription('Precios de mercado Américas — todas las ciudades y calidades')
+        .addStringOption((o) =>
+          o
+            .setName('item')
+            .setDescription('Nombre del ítem (ej: Chaqueta real)')
+            .setRequired(true),
+        );
+      b.addStringOption((o) => {
+        o.setName('tier').setDescription('Tier del ítem');
+        for (let t = 1; t <= 8; t++) {
+          o.addChoices({ name: `T${t}`, value: String(t) });
+        }
+        return o;
+      });
+      b.addStringOption((o) => {
+        o.setName('encantamiento').setDescription('Nivel de encantamiento');
+        for (let e = 0; e <= 4; e++) {
+          o.addChoices({ name: `.${e}`, value: String(e) });
+        }
+        return o;
+      });
+      return b;
+    })(),
     run: runPrecio,
   },
 ];

@@ -22,6 +22,7 @@ const mercado = require('./mercado');
 const { moduleForInteraction, isModuleEnabled } = require('./modules');
 const commandSync = require('./commandSync');
 const { logError, logSystem } = require('./adminRoutes');
+const { startRamMonitor } = require('./ramMonitor');
 const { logCommand, ensureGuildMeta, startStatsScheduler } = require('./stats');
 const { buildInviteUrl } = require('./invite');
 const modulos = [require('./registro'), kill, moderacion, eventos, sanciones, battle, bal, utilidad, mercado];
@@ -210,6 +211,13 @@ function getDb() {
       guild_id TEXT PRIMARY KEY, premium INTEGER DEFAULT 0,
       owner_id TEXT, owner_tag TEXT, joined_at INTEGER, notes TEXT
     );
+    CREATE TABLE IF NOT EXISTS help_videos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      youtube_url TEXT NOT NULL,
+      sort_order INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS sanciones_config (
       guild_id TEXT PRIMARY KEY,
       channel_id TEXT
@@ -292,6 +300,7 @@ client.once(Events.ClientReady, (c) => {
       if (ownerIds.length) log.info(`BOT_OWNER_ID: ${ownerIds.length} id(s) configurado(s)`);
       else log.warn('BOT_OWNER_ID no está en .env / Discloud — el panel admin no reconocerá al dueño');
       startStatsScheduler(getDb, client, log);
+      startRamMonitor(client, getDb, log);
       for (const g of client.guilds.cache.values()) {
         ensureGuildMeta(getDb, g.id, {
           ownerId: g.ownerId,

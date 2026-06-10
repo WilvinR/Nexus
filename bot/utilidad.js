@@ -54,7 +54,7 @@ const CATEGORIES = {
     commands: [
       {
         name: '/precio',
-        desc: 'Precio de venta en el mercado Américas. Opcional: tier (4–8) y encantamiento (0–4).',
+        desc: 'Precio de venta en el mercado Américas. Elige tier (T1–T8) y encantamiento (.0–.4).',
       },
     ],
   },

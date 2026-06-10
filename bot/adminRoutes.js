@@ -56,6 +56,39 @@ function logError(getDb, err, meta = {}) {
     );
 }
 
+function resolveGuildName(client, getDb, guildId) {
+  if (!guildId) return null;
+  const id = String(guildId);
+  const g = client.guilds.cache.get(id);
+  if (g) return g.name;
+  const sug = getDb()
+    .prepare('SELECT guild_name FROM suggestions WHERE guild_id = ? AND guild_name IS NOT NULL ORDER BY created_at DESC LIMIT 1')
+    .get(id);
+  if (sug?.guild_name) return sug.guild_name;
+  return null;
+}
+
+function mapLogRow(client, getDb, r) {
+  const guildId = r.guild_id || null;
+  const guildName = resolveGuildName(client, getDb, guildId);
+  return {
+    id: r.id,
+    level: r.level,
+    message: r.message,
+    guildId,
+    guildName,
+    userId: r.user_id,
+    meta: r.meta_json,
+    createdAt: r.created_at,
+  };
+}
+
+function parseYoutubeId(url) {
+  const s = String(url || '').trim();
+  const m = s.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/i);
+  return m ? m[1] : null;
+}
+
 function saveSuggestion(getDb, { userId, username, guildId, guildName, content }) {
   getDb()
     .prepare(
@@ -159,7 +192,8 @@ function registerAdminRoutes(app, { client, getDb, log, sessionAuth }) {
     ensureGuildMeta(getDb, id);
     const premium = req.body?.premium ? 1 : 0;
     getDb().prepare('UPDATE guild_meta SET premium = ? WHERE guild_id = ?').run(premium, id);
-    logSystem(getDb, 'info', `Premium ${premium ? 'ON' : 'OFF'} en ${id}`, { guildId: id });
+    const gName = client.guilds.cache.get(id)?.name || id;
+    logSystem(getDb, 'info', `Premium ${premium ? 'ON' : 'OFF'} en ${gName}`, { guildId: id });
     res.json({ ok: true, premium: !!premium });
   });
 
@@ -181,7 +215,9 @@ function registerAdminRoutes(app, { client, getDb, log, sessionAuth }) {
     if (hooks?.syncGuildCommands) {
       await hooks.syncGuildCommands(client, getDb, log, req.params.guildId);
     }
-    logSystem(getDb, 'info', `Sincronización manual ${req.params.guildId}`, { guildId: req.params.guildId });
+    const syncId = String(req.params.guildId);
+    const syncName = client.guilds.cache.get(syncId)?.name || syncId;
+    logSystem(getDb, 'info', `Sincronización manual en ${syncName}`, { guildId: syncId });
     res.json({ ok: true });
   });
 
@@ -224,16 +260,20 @@ function registerAdminRoutes(app, { client, getDb, log, sessionAuth }) {
       : getDb().prepare('SELECT * FROM error_logs ORDER BY created_at DESC LIMIT 150').all();
     res.json({
       ok: true,
-      errors: rows.map((r) => ({
-        id: r.id,
-        level: r.level,
-        message: r.message,
-        stack: r.stack,
-        guildId: r.guild_id,
-        userId: r.user_id,
-        resolved: r.resolved === 1,
-        createdAt: r.created_at,
-      })),
+      errors: rows.map((r) => {
+        const guildId = r.guild_id || null;
+        return {
+          id: r.id,
+          level: r.level,
+          message: r.message,
+          stack: r.stack,
+          guildId,
+          guildName: resolveGuildName(client, getDb, guildId),
+          userId: r.user_id,
+          resolved: r.resolved === 1,
+          createdAt: r.created_at,
+        };
+      }),
     });
   });
 
@@ -251,16 +291,61 @@ function registerAdminRoutes(app, { client, getDb, log, sessionAuth }) {
       : getDb().prepare('SELECT * FROM system_logs ORDER BY created_at DESC LIMIT 300').all();
     res.json({
       ok: true,
-      logs: rows.map((r) => ({
+      logs: rows.map((r) => mapLogRow(client, getDb, r)),
+    });
+  });
+
+  app.get('/api/admin/help-videos', sessionAuth, ownerAuth, (req, res) => {
+    const rows = getDb()
+      .prepare('SELECT * FROM help_videos ORDER BY sort_order ASC, id ASC')
+      .all();
+    res.json({
+      ok: true,
+      videos: rows.map((r) => ({
         id: r.id,
-        level: r.level,
-        message: r.message,
-        guildId: r.guild_id,
-        userId: r.user_id,
-        meta: r.meta_json,
+        title: r.title,
+        youtubeUrl: r.youtube_url,
+        youtubeId: parseYoutubeId(r.youtube_url),
+        sortOrder: r.sort_order,
         createdAt: r.created_at,
       })),
     });
+  });
+
+  app.post('/api/admin/help-videos', sessionAuth, ownerAuth, (req, res) => {
+    const title = String(req.body?.title || '').trim();
+    const youtubeUrl = String(req.body?.youtubeUrl || '').trim();
+    if (!title || !youtubeUrl) return res.status(400).json({ error: 'Título y URL requeridos' });
+    if (!parseYoutubeId(youtubeUrl)) return res.status(400).json({ error: 'URL de YouTube no válida' });
+    const maxOrder = getDb().prepare('SELECT COALESCE(MAX(sort_order), 0) AS n FROM help_videos').get().n;
+    const info = getDb()
+      .prepare('INSERT INTO help_videos (title, youtube_url, sort_order, created_at) VALUES (?, ?, ?, ?)')
+      .run(title, youtubeUrl, maxOrder + 1, Date.now());
+    logSystem(getDb, 'info', `Video de ayuda añadido: ${title}`);
+    res.json({ ok: true, id: info.lastInsertRowid });
+  });
+
+  app.put('/api/admin/help-videos/:id', sessionAuth, ownerAuth, (req, res) => {
+    const id = Number(req.params.id);
+    const title = String(req.body?.title || '').trim();
+    const youtubeUrl = String(req.body?.youtubeUrl || '').trim();
+    if (!title || !youtubeUrl) return res.status(400).json({ error: 'Título y URL requeridos' });
+    if (!parseYoutubeId(youtubeUrl)) return res.status(400).json({ error: 'URL de YouTube no válida' });
+    const r = getDb()
+      .prepare('UPDATE help_videos SET title = ?, youtube_url = ? WHERE id = ?')
+      .run(title, youtubeUrl, id);
+    if (!r.changes) return res.status(404).json({ error: 'Video no encontrado' });
+    logSystem(getDb, 'info', `Video de ayuda editado: ${title}`);
+    res.json({ ok: true });
+  });
+
+  app.delete('/api/admin/help-videos/:id', sessionAuth, ownerAuth, (req, res) => {
+    const id = Number(req.params.id);
+    const row = getDb().prepare('SELECT title FROM help_videos WHERE id = ?').get(id);
+    if (!row) return res.status(404).json({ error: 'Video no encontrado' });
+    getDb().prepare('DELETE FROM help_videos WHERE id = ?').run(id);
+    logSystem(getDb, 'info', `Video de ayuda eliminado: ${row.title}`);
+    res.json({ ok: true });
   });
 
   app.get('/api/admin/services', sessionAuth, ownerAuth, async (req, res) => {
@@ -350,4 +435,6 @@ module.exports = {
   logSystem,
   logError,
   saveSuggestion,
+  parseYoutubeId,
+  resolveGuildName,
 };

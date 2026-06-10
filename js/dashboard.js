@@ -74,16 +74,121 @@ function setGuildHeader(g) {
 }
 
 function showGuildGrid() {
+  switchDashView('servers');
   document.getElementById('guild-grid').classList.remove('hidden');
   document.getElementById('guild-config').classList.add('hidden');
-  document.querySelector('.dash-head h1').textContent = 'TUS SERVIDORES';
-  document.getElementById('dash-hint').classList.remove('hidden');
+}
+
+function switchDashView(view) {
+  document.querySelectorAll('.dash-subnav-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.view === view);
+  });
+  document.getElementById('view-servers').classList.toggle('hidden', view !== 'servers');
+  document.getElementById('view-help').classList.toggle('hidden', view !== 'help');
+  document.getElementById('view-search').classList.toggle('hidden', view !== 'search');
+  document.getElementById('dash-hint').classList.toggle('hidden', view !== 'servers');
+
+  const titles = { servers: 'TUS SERVIDORES', help: 'AYUDA', search: 'BUSCAR' };
+  document.getElementById('dash-page-title').textContent = titles[view] || 'DASHBOARD';
+
+  if (view === 'help') loadHelpVideos();
+  if (view === 'search') document.getElementById('albion-search-q')?.focus();
+}
+
+async function loadHelpVideos() {
+  const box = document.getElementById('help-videos-list');
+  if (!box) return;
+  box.innerHTML = '<p class="dash-empty">Cargando…</p>';
+  const r = await api('/api/help/videos');
+  if (!r.ok) {
+    box.innerHTML = '<p class="dash-empty">No se pudieron cargar los videos.</p>';
+    return;
+  }
+  const { videos } = await r.json();
+  if (!videos.length) {
+    box.innerHTML = '<p class="dash-empty">Aún no hay videos de ayuda.</p>';
+    return;
+  }
+  box.innerHTML = videos
+    .map(
+      (v) => `<div class="help-video-card">
+        <h4 class="help-video-title">${escapeHtml(v.title)}</h4>
+        ${
+          v.youtubeId
+            ? `<div class="help-video-embed"><iframe src="https://www.youtube.com/embed/${escapeHtml(v.youtubeId)}" title="${escapeHtml(v.title)}" allowfullscreen loading="lazy"></iframe></div>`
+            : `<p class="modal-meta"><a href="${escapeHtml(v.youtubeUrl)}" target="_blank" rel="noopener">Ver en YouTube</a></p>`
+        }
+      </div>`,
+    )
+    .join('');
+}
+
+let searchMode = 'players';
+
+function fmtAlbionFame(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0) return '—';
+  if (x >= 1e9) return `${(x / 1e9).toFixed(2)}B`;
+  if (x >= 1e6) return `${(x / 1e6).toFixed(2)}M`;
+  if (x >= 1e3) return `${(x / 1e3).toFixed(1)}K`;
+  return String(x);
+}
+
+async function runAlbionSearch() {
+  const q = document.getElementById('albion-search-q')?.value.trim();
+  const box = document.getElementById('albion-search-results');
+  if (!q || q.length < 2) {
+    box.innerHTML = '<p class="modal-meta">Escribe al menos 2 caracteres.</p>';
+    return;
+  }
+  box.innerHTML = '<p class="dash-empty">Buscando…</p>';
+  const path =
+    searchMode === 'guilds'
+      ? `/api/albion/search/guilds?q=${encodeURIComponent(q)}`
+      : `/api/albion/search/players?q=${encodeURIComponent(q)}`;
+  const r = await api(path);
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    box.innerHTML = `<p class="dash-empty">${escapeHtml(err.error || 'Error de búsqueda')}</p>`;
+    return;
+  }
+  const data = await r.json();
+  if (searchMode === 'guilds') {
+    const list = data.guilds || [];
+    box.innerHTML = list.length
+      ? list
+          .map(
+            (g) => `<div class="capsule search-result-item">
+              <div class="capsule-name"><strong>${escapeHtml(g.name)}</strong>
+                ${g.allianceName ? `<span class="modal-meta"> · [${escapeHtml(g.allianceTag || g.allianceName)}]</span>` : ''}
+                <br><span class="modal-meta">ID: ${escapeHtml(g.id)} · Miembros: ${g.memberCount ?? '—'} · Fama: ${fmtAlbionFame(g.killFame)}</span>
+              </div>
+            </div>`,
+          )
+          .join('')
+      : '<p class="dash-empty">Sin resultados.</p>';
+  } else {
+    const list = data.players || [];
+    box.innerHTML = list.length
+      ? list
+          .map(
+            (p) => `<div class="capsule search-result-item">
+              <div class="capsule-name"><strong>${escapeHtml(p.name)}</strong>
+                ${p.guildName ? `<span class="modal-meta"> · ${escapeHtml(p.guildName)}</span>` : ''}
+                <br><span class="modal-meta">ID: ${escapeHtml(p.id)} · Kill: ${fmtAlbionFame(p.killFame)} · Death: ${fmtAlbionFame(p.deathFame)}</span>
+              </div>
+            </div>`,
+          )
+          .join('')
+      : '<p class="dash-empty">Sin resultados.</p>';
+  }
 }
 
 function openGuild(g) {
+  document.getElementById('view-servers').classList.remove('hidden');
   document.getElementById('guild-grid').classList.add('hidden');
   document.getElementById('guild-config').classList.remove('hidden');
-  document.querySelector('.dash-head h1').textContent = 'CONFIGURAR';
+  document.getElementById('dash-page-title').textContent = 'CONFIGURAR';
   document.getElementById('dash-hint').classList.add('hidden');
   currentGuildId = g.id;
   channelsCacheReset();
@@ -176,7 +281,7 @@ async function loadDashboard() {
   }
   document.getElementById('user-label').innerHTML = userLine;
   showDash();
-  showGuildGrid();
+  switchDashView('servers');
 
   const grid = document.getElementById('guild-grid');
   grid.innerHTML = '<p class="dash-empty">Cargando servidores…</p>';
@@ -235,6 +340,26 @@ document.addEventListener('DOMContentLoaded', () => {
     showLogin();
   });
   document.getElementById('btn-back').addEventListener('click', showGuildGrid);
+
+  document.querySelectorAll('.dash-subnav-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.view === 'servers') showGuildGrid();
+      switchDashView(btn.dataset.view);
+    });
+  });
+
+  document.querySelectorAll('.search-tab').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      searchMode = btn.dataset.search;
+      document.querySelectorAll('.search-tab').forEach((b) => b.classList.toggle('active', b === btn));
+      document.getElementById('albion-search-results').innerHTML = '';
+    });
+  });
+
+  document.getElementById('albion-search-btn')?.addEventListener('click', runAlbionSearch);
+  document.getElementById('albion-search-q')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runAlbionSearch();
+  });
 
   if (NexusAuth.getToken()) loadDashboard();
   else showLogin();
