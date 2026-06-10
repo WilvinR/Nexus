@@ -358,13 +358,38 @@ function start(client, log, getDb, hooks = {}) {
   });
 
   const ALBION_API = 'https://gameinfo.albiononline.com/api/gameinfo';
+  const ALBION_RETRIES = 3;
+  const ALBION_TIMEOUT_MS = 20_000;
+
+  async function albionFetchWithRetry(url, { notFoundOn404 = false } = {}) {
+    let lastErr;
+    for (let attempt = 1; attempt <= ALBION_RETRIES; attempt++) {
+      try {
+        const r = await fetch(url, { signal: AbortSignal.timeout(ALBION_TIMEOUT_MS) });
+        if (r.status === 404 && notFoundOn404) return { notFound: true };
+        if (!r.ok) {
+          lastErr = new Error(`HTTP ${r.status}`);
+          if (attempt < ALBION_RETRIES) {
+            await new Promise((res) => setTimeout(res, 600 * attempt));
+            continue;
+          }
+          return null;
+        }
+        return r.json();
+      } catch (e) {
+        lastErr = e;
+        if (attempt < ALBION_RETRIES) {
+          await new Promise((res) => setTimeout(res, 600 * attempt));
+          continue;
+        }
+        throw lastErr;
+      }
+    }
+    return null;
+  }
 
   async function albionSearchQuery(q) {
-    const r = await fetch(`${ALBION_API}/search?q=${encodeURIComponent(q)}`, {
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!r.ok) return null;
-    return r.json();
+    return albionFetchWithRetry(`${ALBION_API}/search?q=${encodeURIComponent(q)}`);
   }
 
   app.get('/api/help/videos', sessionAuth, (req, res) => {
@@ -383,10 +408,39 @@ function start(client, log, getDb, hooks = {}) {
   });
 
   async function albionFetchJson(path) {
-    const r = await fetch(`${ALBION_API}${path}`, { signal: AbortSignal.timeout(15_000) });
-    if (r.status === 404) return { notFound: true };
-    if (!r.ok) return null;
-    return r.json();
+    return albionFetchWithRetry(`${ALBION_API}${path}`, { notFoundOn404: true });
+  }
+
+  function mapPlayerLifetime(ls) {
+    if (!ls) return null;
+    return {
+      pve: {
+        total: ls.PvE?.Total ?? null,
+        royal: ls.PvE?.Royal ?? null,
+        outlands: ls.PvE?.Outlands ?? null,
+        avalon: ls.PvE?.Avalon ?? null,
+        hellgate: ls.PvE?.Hellgate ?? null,
+        corruptedDungeon: ls.PvE?.CorruptedDungeon ?? null,
+        mists: ls.PvE?.Mists ?? null,
+      },
+      gathering: {
+        fiber: ls.Gathering?.Fiber?.Total ?? null,
+        hide: ls.Gathering?.Hide?.Total ?? null,
+        ore: ls.Gathering?.Ore?.Total ?? null,
+        rock: ls.Gathering?.Rock?.Total ?? null,
+        wood: ls.Gathering?.Wood?.Total ?? null,
+        all: ls.Gathering?.All?.Total ?? null,
+      },
+      crafting: {
+        total: ls.Crafting?.Total ?? null,
+        royal: ls.Crafting?.Royal ?? null,
+        outlands: ls.Crafting?.Outlands ?? null,
+        avalon: ls.Crafting?.Avalon ?? null,
+      },
+      fishingFame: ls.FishingFame ?? null,
+      farmingFame: ls.FarmingFame ?? null,
+      crystalLeague: ls.CrystalLeague ?? null,
+    };
   }
 
   async function fetchGuildTopPlayers(guildId) {
@@ -420,7 +474,7 @@ function start(client, log, getDb, hooks = {}) {
           deathFame: data.DeathFame ?? null,
           fameRatio: data.FameRatio ?? null,
           averageItemPower: data.AverageItemPower ?? null,
-          pveTotal: data.LifetimeStatistics?.PvE?.Total ?? null,
+          lifetime: mapPlayerLifetime(data.LifetimeStatistics),
           killboardUrl: `https://albiononline.com/en/killboard/player/${data.Id}`,
         },
       });
@@ -455,8 +509,8 @@ function start(client, log, getDb, hooks = {}) {
           allianceId: data.AllianceId || null,
           allianceName: data.AllianceName || null,
           allianceTag,
-          killFame: data.KillFame ?? null,
-          deathFame: data.DeathFame ?? null,
+          killFame: data.KillFame ?? data.killFame ?? null,
+          deathFame: data.DeathFame ?? data.deathFame ?? null,
           topPlayers: topPlayers.map((p) => ({
             id: p.Id,
             name: p.Name,

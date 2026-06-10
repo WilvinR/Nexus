@@ -125,9 +125,10 @@ async function loadHelpVideos() {
 
 let searchMode = 'players';
 
-function fmtAlbionFame(n) {
+function fmtAlbionFame(n, showZero = false) {
   const x = Number(n);
-  if (!Number.isFinite(x) || x <= 0) return '—';
+  if (!Number.isFinite(x)) return '—';
+  if (x <= 0) return showZero ? '0' : '—';
   if (x >= 1e12) return `${(x / 1e12).toFixed(2)}T`;
   if (x >= 1e9) return `${(x / 1e9).toFixed(2)}B`;
   if (x >= 1e6) return `${(x / 1e6).toFixed(2)}M`;
@@ -181,6 +182,86 @@ function bindCopyButtons(root) {
   });
 }
 
+function albionLoaderHtml(text = 'Consultando Albion…') {
+  return `<div class="albion-loader" role="status" aria-live="polite">
+    <div class="albion-loader-swords" aria-hidden="true">
+      <span class="albion-sword albion-sword-left">⚔</span>
+      <span class="albion-sword-spark"></span>
+      <span class="albion-sword albion-sword-right">⚔</span>
+    </div>
+    <p class="albion-loader-text">${escapeHtml(text)}</p>
+  </div>`;
+}
+
+function lifetimeStatRow(label, value) {
+  if (value == null) return '';
+  return `<div class="lifetime-stat"><span>${escapeHtml(label)}</span><strong>${fmtAlbionFame(value, true)}</strong></div>`;
+}
+
+function renderLifetimeStats(lifetime) {
+  if (!lifetime) return '';
+  const { pve, gathering, crafting, fishingFame, farmingFame, crystalLeague } = lifetime;
+  const hasPve = pve && [pve.total, pve.royal, pve.outlands, pve.avalon, pve.hellgate, pve.corruptedDungeon, pve.mists].some(
+    (v) => Number(v) > 0,
+  );
+  const hasGathering =
+    gathering &&
+    [gathering.fiber, gathering.hide, gathering.ore, gathering.rock, gathering.wood, gathering.all].some(
+      (v) => Number(v) > 0,
+    );
+  const hasCrafting =
+    (crafting && [crafting.total, crafting.royal, crafting.outlands, crafting.avalon].some((v) => Number(v) > 0)) ||
+    Number(fishingFame) > 0 ||
+    Number(farmingFame) > 0 ||
+    Number(crystalLeague) > 0;
+  if (!hasPve && !hasGathering && !hasCrafting) return '';
+
+  const pveCol = hasPve
+    ? `<div class="lifetime-col lifetime-col-pve">
+        <h5 class="lifetime-col-title">PvE Fame</h5>
+        ${lifetimeStatRow('Total', pve.total)}
+        ${lifetimeStatRow('Royal', pve.royal)}
+        ${lifetimeStatRow('Outlands', pve.outlands)}
+        ${lifetimeStatRow('Avalon', pve.avalon)}
+        ${Number(pve.hellgate) > 0 ? lifetimeStatRow('Hellgate', pve.hellgate) : ''}
+        ${Number(pve.corruptedDungeon) > 0 ? lifetimeStatRow('Corrupted', pve.corruptedDungeon) : ''}
+        ${Number(pve.mists) > 0 ? lifetimeStatRow('Mists', pve.mists) : ''}
+      </div>`
+    : '';
+
+  const gatheringCol = hasGathering
+    ? `<div class="lifetime-col lifetime-col-gather">
+        <h5 class="lifetime-col-title">Gathering</h5>
+        ${lifetimeStatRow('Fiber', gathering.fiber)}
+        ${lifetimeStatRow('Hide', gathering.hide)}
+        ${lifetimeStatRow('Ore', gathering.ore)}
+        ${lifetimeStatRow('Rock', gathering.rock)}
+        ${lifetimeStatRow('Wood', gathering.wood)}
+        ${Number(gathering.all) >= 0 ? `<div class="lifetime-stat lifetime-stat-total"><span>All</span><strong>${fmtAlbionFame(gathering.all, true)}</strong></div>` : ''}
+      </div>`
+    : '';
+
+  const craftingCol = hasCrafting
+    ? `<div class="lifetime-col lifetime-col-craft">
+        <h5 class="lifetime-col-title">Crafting</h5>
+        ${crafting ? lifetimeStatRow('Total', crafting.total) : ''}
+        ${crafting ? lifetimeStatRow('Royal', crafting.royal) : ''}
+        ${crafting ? lifetimeStatRow('Outlands', crafting.outlands) : ''}
+        ${crafting ? lifetimeStatRow('Avalon', crafting.avalon) : ''}
+        ${Number(fishingFame) > 0 || Number(farmingFame) > 0 || Number(crystalLeague) > 0 ? '<div class="lifetime-extra">' : ''}
+        ${Number(fishingFame) > 0 ? lifetimeStatRow('Fishing', fishingFame) : ''}
+        ${Number(farmingFame) > 0 ? lifetimeStatRow('Farming', farmingFame) : ''}
+        ${Number(crystalLeague) > 0 ? lifetimeStatRow('Crystal League', crystalLeague) : ''}
+        ${Number(fishingFame) > 0 || Number(farmingFame) > 0 || Number(crystalLeague) > 0 ? '</div>' : ''}
+      </div>`
+    : '';
+
+  return `<div class="search-detail-block">
+    <p class="search-block-title">Estadísticas de vida</p>
+    <div class="lifetime-stats-grid">${pveCol}${gatheringCol}${craftingCol}</div>
+  </div>`;
+}
+
 function renderPlayerDetail(p) {
   const box = document.getElementById('albion-search-detail');
   if (!box) return;
@@ -197,8 +278,8 @@ function renderPlayerDetail(p) {
         <div><span class="search-stat-label">Death fame</span><strong>${fmtAlbionFame(p.deathFame)}</strong></div>
         <div><span class="search-stat-label">K/D ratio</span><strong>${fmtRatio(p.fameRatio)}</strong></div>
         <div><span class="search-stat-label">IP promedio</span><strong>${p.averageItemPower ? Math.round(p.averageItemPower) : '—'}</strong></div>
-        ${p.pveTotal ? `<div><span class="search-stat-label">PvE total</span><strong>${fmtAlbionFame(p.pveTotal)}</strong></div>` : ''}
       </div>
+      ${renderLifetimeStats(p.lifetime)}
       <div class="search-detail-block">
         <p class="search-block-title">Gremio</p>
         <p>${escapeHtml(p.guildName || 'Sin gremio')}${p.guildName ? ` · <button type="button" class="link-btn" data-guild-detail="${escapeHtml(p.guildId)}">Ver gremio</button>` : ''}</p>
@@ -268,7 +349,7 @@ async function loadPlayerDetail(id) {
   const box = document.getElementById('albion-search-detail');
   if (!box) return;
   box.classList.remove('hidden');
-  box.innerHTML = '<p class="dash-empty">Cargando jugador…</p>';
+  box.innerHTML = albionLoaderHtml('Cargando jugador…');
   const r = await api(`/api/albion/players/${encodeURIComponent(id)}`);
   if (!r.ok) {
     box.innerHTML = `<p class="dash-empty">${escapeHtml((await r.json().catch(() => ({}))).error || 'Error')}</p>`;
@@ -282,7 +363,7 @@ async function loadGuildDetail(id) {
   const box = document.getElementById('albion-search-detail');
   if (!box) return;
   box.classList.remove('hidden');
-  box.innerHTML = '<p class="dash-empty">Cargando gremio…</p>';
+  box.innerHTML = albionLoaderHtml('Cargando gremio…');
   const r = await api(`/api/albion/guilds/${encodeURIComponent(id)}`);
   if (!r.ok) {
     box.innerHTML = `<p class="dash-empty">${escapeHtml((await r.json().catch(() => ({}))).error || 'Error')}</p>`;
@@ -302,7 +383,7 @@ async function runAlbionSearch() {
     box.innerHTML = '<p class="modal-meta">Escribe al menos 2 caracteres del nombre.</p>';
     return;
   }
-  box.innerHTML = '<p class="dash-empty">Buscando…</p>';
+  box.innerHTML = albionLoaderHtml('Buscando en Albion…');
   const path =
     searchMode === 'guilds'
       ? `/api/albion/search/guilds?q=${encodeURIComponent(q)}`
