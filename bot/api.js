@@ -382,6 +382,94 @@ function start(client, log, getDb, hooks = {}) {
     });
   });
 
+  async function albionFetchJson(path) {
+    const r = await fetch(`${ALBION_API}${path}`, { signal: AbortSignal.timeout(15_000) });
+    if (r.status === 404) return { notFound: true };
+    if (!r.ok) return null;
+    return r.json();
+  }
+
+  async function fetchGuildTopPlayers(guildId) {
+    const dataRes = await albionFetchJson(`/guilds/${guildId}/data`);
+    if (dataRes && !dataRes.notFound && dataRes.topPlayers?.length) {
+      return dataRes.topPlayers.slice(0, 5);
+    }
+    const memRes = await albionFetchJson(`/guilds/${guildId}/members`);
+    if (!memRes || memRes.notFound || !Array.isArray(memRes)) return [];
+    return [...memRes].sort((a, b) => (b.KillFame || 0) - (a.KillFame || 0)).slice(0, 5);
+  }
+
+  app.get('/api/albion/players/:playerId', sessionAuth, async (req, res) => {
+    const id = String(req.params.playerId || '').trim();
+    if (!id) return res.status(400).json({ error: 'ID requerido' });
+    try {
+      const data = await albionFetchJson(`/players/${encodeURIComponent(id)}`);
+      if (data?.notFound) return res.status(404).json({ error: 'Jugador no encontrado' });
+      if (!data) return res.status(502).json({ error: 'API de Albion no disponible' });
+      res.json({
+        ok: true,
+        player: {
+          id: data.Id,
+          name: data.Name,
+          guildId: data.GuildId || null,
+          guildName: data.GuildName || null,
+          allianceId: data.AllianceId || null,
+          allianceName: data.AllianceName || null,
+          allianceTag: data.AllianceTag || null,
+          killFame: data.KillFame ?? null,
+          deathFame: data.DeathFame ?? null,
+          fameRatio: data.FameRatio ?? null,
+          averageItemPower: data.AverageItemPower ?? null,
+          pveTotal: data.LifetimeStatistics?.PvE?.Total ?? null,
+          killboardUrl: `https://albiononline.com/en/killboard/player/${data.Id}`,
+        },
+      });
+    } catch (e) {
+      res.status(502).json({ error: e.message || 'Error al cargar jugador' });
+    }
+  });
+
+  app.get('/api/albion/guilds/:guildId', sessionAuth, async (req, res) => {
+    const id = String(req.params.guildId || '').trim();
+    if (!id) return res.status(400).json({ error: 'ID requerido' });
+    try {
+      const data = await albionFetchJson(`/guilds/${encodeURIComponent(id)}`);
+      if (data?.notFound) return res.status(404).json({ error: 'Gremio no encontrado' });
+      if (!data) return res.status(502).json({ error: 'API de Albion no disponible' });
+      let allianceTag = data.AllianceTag || data.AllianceName || null;
+      if (data.AllianceId && !allianceTag) {
+        const al = await albionFetchJson(`/alliances/${data.AllianceId}`);
+        if (al && !al.notFound) {
+          allianceTag = al.Tag || al.AllianceTag || al.AllianceName || null;
+        }
+      }
+      const topPlayers = await fetchGuildTopPlayers(id);
+      res.json({
+        ok: true,
+        guild: {
+          id: data.Id,
+          name: data.Name,
+          founderName: data.FounderName || null,
+          founded: data.Founded || null,
+          memberCount: data.MemberCount ?? null,
+          allianceId: data.AllianceId || null,
+          allianceName: data.AllianceName || null,
+          allianceTag,
+          killFame: data.KillFame ?? null,
+          deathFame: data.DeathFame ?? null,
+          topPlayers: topPlayers.map((p) => ({
+            id: p.Id,
+            name: p.Name,
+            killFame: p.KillFame ?? null,
+          })),
+          killboardUrl: `https://albiononline.com/en/killboard/guild/${data.Id}`,
+        },
+      });
+    } catch (e) {
+      res.status(502).json({ error: e.message || 'Error al cargar gremio' });
+    }
+  });
+
   app.get('/api/albion/search/players', sessionAuth, async (req, res) => {
     const q = String(req.query.q || '').trim();
     if (q.length < 2) return res.status(400).json({ error: 'Escribe al menos 2 caracteres' });
@@ -394,8 +482,10 @@ function start(client, log, getDb, hooks = {}) {
         guildName: p.GuildName || null,
         guildId: p.GuildId || null,
         allianceName: p.AllianceName || null,
+        allianceTag: p.AllianceTag || null,
         killFame: p.KillFame ?? null,
         deathFame: p.DeathFame ?? null,
+        fameRatio: p.FameRatio ?? null,
       }));
       res.json({ ok: true, players });
     } catch (e) {

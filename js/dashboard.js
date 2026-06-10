@@ -88,7 +88,7 @@ function switchDashView(view) {
   document.getElementById('view-search').classList.toggle('hidden', view !== 'search');
   document.getElementById('dash-hint').classList.toggle('hidden', view !== 'servers');
 
-  const titles = { servers: 'TUS SERVIDORES', help: 'AYUDA', search: 'BUSCAR' };
+  const titles = { servers: 'TUS SERVIDORES', help: 'AYUDA', search: 'INFORMACIÓN ALBION' };
   document.getElementById('dash-page-title').textContent = titles[view] || 'DASHBOARD';
 
   if (view === 'help') loadHelpVideos();
@@ -128,17 +128,178 @@ let searchMode = 'players';
 function fmtAlbionFame(n) {
   const x = Number(n);
   if (!Number.isFinite(x) || x <= 0) return '—';
+  if (x >= 1e12) return `${(x / 1e12).toFixed(2)}T`;
   if (x >= 1e9) return `${(x / 1e9).toFixed(2)}B`;
   if (x >= 1e6) return `${(x / 1e6).toFixed(2)}M`;
   if (x >= 1e3) return `${(x / 1e3).toFixed(1)}K`;
-  return String(x);
+  return x.toLocaleString('en-US');
+}
+
+function fmtRatio(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return '—';
+  return x.toFixed(2);
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('es-ES');
+}
+
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    if (btn) {
+      const prev = btn.textContent;
+      btn.textContent = 'Copiado';
+      setTimeout(() => {
+        btn.textContent = prev;
+      }, 1200);
+    }
+  } catch {
+    alert('No se pudo copiar');
+  }
+}
+
+function idRow(label, value) {
+  if (!value) return '';
+  return `<div class="search-id-row">
+    <span class="search-id-label">${escapeHtml(label)}</span>
+    <code class="search-id-val">${escapeHtml(value)}</code>
+    <button type="button" class="btn btn-ghost btn-sm search-copy-btn" data-copy="${escapeHtml(value)}">Copiar</button>
+  </div>`;
+}
+
+function bindCopyButtons(root) {
+  root.querySelectorAll('[data-copy]').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      copyText(btn.getAttribute('data-copy'), btn);
+    });
+  });
+}
+
+function renderPlayerDetail(p) {
+  const box = document.getElementById('albion-search-detail');
+  if (!box) return;
+  box.classList.remove('hidden');
+  const alliance = p.allianceTag || p.allianceName || '—';
+  box.innerHTML = `
+    <div class="search-detail-card">
+      <div class="search-detail-head">
+        <h4>${escapeHtml(p.name)}</h4>
+        <a class="btn btn-ghost btn-sm" href="${escapeHtml(p.killboardUrl)}" target="_blank" rel="noopener">Killboard ↗</a>
+      </div>
+      <div class="search-stats-grid">
+        <div><span class="search-stat-label">Kill fame</span><strong>${fmtAlbionFame(p.killFame)}</strong></div>
+        <div><span class="search-stat-label">Death fame</span><strong>${fmtAlbionFame(p.deathFame)}</strong></div>
+        <div><span class="search-stat-label">K/D ratio</span><strong>${fmtRatio(p.fameRatio)}</strong></div>
+        <div><span class="search-stat-label">IP promedio</span><strong>${p.averageItemPower ? Math.round(p.averageItemPower) : '—'}</strong></div>
+        ${p.pveTotal ? `<div><span class="search-stat-label">PvE total</span><strong>${fmtAlbionFame(p.pveTotal)}</strong></div>` : ''}
+      </div>
+      <div class="search-detail-block">
+        <p class="search-block-title">Gremio</p>
+        <p>${escapeHtml(p.guildName || 'Sin gremio')}${p.guildName ? ` · <button type="button" class="link-btn" data-guild-detail="${escapeHtml(p.guildId)}">Ver gremio</button>` : ''}</p>
+        ${idRow('ID jugador', p.id)}
+        ${idRow('ID gremio', p.guildId)}
+      </div>
+      <div class="search-detail-block">
+        <p class="search-block-title">Alianza</p>
+        <p>${escapeHtml(alliance)}</p>
+        ${idRow('ID alianza', p.allianceId)}
+      </div>
+    </div>`;
+  bindCopyButtons(box);
+  box.querySelector('[data-guild-detail]')?.addEventListener('click', () => {
+    loadGuildDetail(p.guildId);
+  });
+}
+
+function renderGuildDetail(g) {
+  const box = document.getElementById('albion-search-detail');
+  if (!box) return;
+  box.classList.remove('hidden');
+  const alliance = g.allianceTag || g.allianceName || '—';
+  const topHtml = g.topPlayers?.length
+    ? g.topPlayers
+        .map(
+          (p) =>
+            `<button type="button" class="search-top-player" data-player-detail="${escapeHtml(p.id)}">${escapeHtml(p.name)} · ${fmtAlbionFame(p.killFame)}</button>`,
+        )
+        .join('')
+    : '<p class="modal-meta">Sin datos de top players.</p>';
+
+  box.innerHTML = `
+    <div class="search-detail-card">
+      <div class="search-detail-head">
+        <h4>${escapeHtml(g.name)}</h4>
+        <a class="btn btn-ghost btn-sm" href="${escapeHtml(g.killboardUrl)}" target="_blank" rel="noopener">Killboard ↗</a>
+      </div>
+      <div class="search-stats-grid">
+        <div><span class="search-stat-label">Miembros</span><strong>${g.memberCount ?? '—'}</strong></div>
+        <div><span class="search-stat-label">Kill fame</span><strong>${fmtAlbionFame(g.killFame)}</strong></div>
+        <div><span class="search-stat-label">Death fame</span><strong>${fmtAlbionFame(g.deathFame)}</strong></div>
+        <div><span class="search-stat-label">Fundado</span><strong>${fmtDate(g.founded)}</strong></div>
+      </div>
+      <div class="search-detail-block">
+        <p class="search-block-title">Fundador</p>
+        <p>${escapeHtml(g.founderName || '—')}</p>
+        ${idRow('ID gremio', g.id)}
+        ${idRow('ID alianza', g.allianceId)}
+      </div>
+      <div class="search-detail-block">
+        <p class="search-block-title">Alianza</p>
+        <p>${escapeHtml(alliance)}</p>
+      </div>
+      <div class="search-detail-block">
+        <p class="search-block-title">Top jugadores (kill fame)</p>
+        <div class="search-top-list">${topHtml}</div>
+      </div>
+    </div>`;
+  bindCopyButtons(box);
+  box.querySelectorAll('[data-player-detail]').forEach((btn) => {
+    btn.addEventListener('click', () => loadPlayerDetail(btn.getAttribute('data-player-detail')));
+  });
+}
+
+async function loadPlayerDetail(id) {
+  const box = document.getElementById('albion-search-detail');
+  if (!box) return;
+  box.classList.remove('hidden');
+  box.innerHTML = '<p class="dash-empty">Cargando jugador…</p>';
+  const r = await api(`/api/albion/players/${encodeURIComponent(id)}`);
+  if (!r.ok) {
+    box.innerHTML = `<p class="dash-empty">${escapeHtml((await r.json().catch(() => ({}))).error || 'Error')}</p>`;
+    return;
+  }
+  const { player } = await r.json();
+  renderPlayerDetail(player);
+}
+
+async function loadGuildDetail(id) {
+  const box = document.getElementById('albion-search-detail');
+  if (!box) return;
+  box.classList.remove('hidden');
+  box.innerHTML = '<p class="dash-empty">Cargando gremio…</p>';
+  const r = await api(`/api/albion/guilds/${encodeURIComponent(id)}`);
+  if (!r.ok) {
+    box.innerHTML = `<p class="dash-empty">${escapeHtml((await r.json().catch(() => ({}))).error || 'Error')}</p>`;
+    return;
+  }
+  const { guild } = await r.json();
+  renderGuildDetail(guild);
 }
 
 async function runAlbionSearch() {
   const q = document.getElementById('albion-search-q')?.value.trim();
   const box = document.getElementById('albion-search-results');
+  const detail = document.getElementById('albion-search-detail');
+  detail?.classList.add('hidden');
+  if (detail) detail.innerHTML = '';
   if (!q || q.length < 2) {
-    box.innerHTML = '<p class="modal-meta">Escribe al menos 2 caracteres.</p>';
+    box.innerHTML = '<p class="modal-meta">Escribe al menos 2 caracteres del nombre.</p>';
     return;
   }
   box.innerHTML = '<p class="dash-empty">Buscando…</p>';
@@ -156,31 +317,33 @@ async function runAlbionSearch() {
   if (searchMode === 'guilds') {
     const list = data.guilds || [];
     box.innerHTML = list.length
-      ? list
+      ? `<p class="modal-meta search-hint">${list.length} resultado(s) — haz clic para ver detalle</p>${list
           .map(
-            (g) => `<div class="capsule search-result-item">
-              <div class="capsule-name"><strong>${escapeHtml(g.name)}</strong>
-                ${g.allianceName ? `<span class="modal-meta"> · [${escapeHtml(g.allianceTag || g.allianceName)}]</span>` : ''}
-                <br><span class="modal-meta">ID: ${escapeHtml(g.id)} · Miembros: ${g.memberCount ?? '—'} · Fama: ${fmtAlbionFame(g.killFame)}</span>
-              </div>
-            </div>`,
+            (g) => `<button type="button" class="search-result-btn" data-guild-id="${escapeHtml(g.id)}">
+              <span class="search-result-name">${escapeHtml(g.name)}</span>
+              <span class="search-result-meta">${g.allianceTag || g.allianceName ? `[${escapeHtml(g.allianceTag || g.allianceName)}] · ` : ''}${g.memberCount ?? '—'} miembros · ${fmtAlbionFame(g.killFame)} fama</span>
+            </button>`,
           )
-          .join('')
-      : '<p class="dash-empty">Sin resultados.</p>';
+          .join('')}`
+      : '<p class="dash-empty">Sin gremios con ese nombre.</p>';
+    box.querySelectorAll('[data-guild-id]').forEach((btn) => {
+      btn.addEventListener('click', () => loadGuildDetail(btn.getAttribute('data-guild-id')));
+    });
   } else {
     const list = data.players || [];
     box.innerHTML = list.length
-      ? list
+      ? `<p class="modal-meta search-hint">${list.length} resultado(s) — haz clic para ver detalle</p>${list
           .map(
-            (p) => `<div class="capsule search-result-item">
-              <div class="capsule-name"><strong>${escapeHtml(p.name)}</strong>
-                ${p.guildName ? `<span class="modal-meta"> · ${escapeHtml(p.guildName)}</span>` : ''}
-                <br><span class="modal-meta">ID: ${escapeHtml(p.id)} · Kill: ${fmtAlbionFame(p.killFame)} · Death: ${fmtAlbionFame(p.deathFame)}</span>
-              </div>
-            </div>`,
+            (p) => `<button type="button" class="search-result-btn" data-player-id="${escapeHtml(p.id)}">
+              <span class="search-result-name">${escapeHtml(p.name)}</span>
+              <span class="search-result-meta">${p.guildName ? `${escapeHtml(p.guildName)} · ` : ''}K/D ${fmtRatio(p.fameRatio)} · Kill ${fmtAlbionFame(p.killFame)}</span>
+            </button>`,
           )
-          .join('')
-      : '<p class="dash-empty">Sin resultados.</p>';
+          .join('')}`
+      : '<p class="dash-empty">Sin jugadores con ese nombre.</p>';
+    box.querySelectorAll('[data-player-id]').forEach((btn) => {
+      btn.addEventListener('click', () => loadPlayerDetail(btn.getAttribute('data-player-id')));
+    });
   }
 }
 
@@ -348,11 +511,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-  document.querySelectorAll('.search-tab').forEach((btn) => {
+  document.querySelectorAll('.search-mode-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       searchMode = btn.dataset.search;
-      document.querySelectorAll('.search-tab').forEach((b) => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.search-mode-btn').forEach((b) => b.classList.toggle('active', b === btn));
       document.getElementById('albion-search-results').innerHTML = '';
+      const detail = document.getElementById('albion-search-detail');
+      if (detail) {
+        detail.classList.add('hidden');
+        detail.innerHTML = '';
+      }
     });
   });
 

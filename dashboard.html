@@ -37,7 +37,7 @@
       <nav class="dash-subnav" id="dash-subnav" aria-label="Secciones del dashboard">
         <button type="button" class="dash-subnav-btn active" data-view="servers">Servidores</button>
         <button type="button" class="dash-subnav-btn" data-view="help">Ayuda</button>
-        <button type="button" class="dash-subnav-btn" data-view="search">Buscar</button>
+        <button type="button" class="dash-subnav-btn" data-view="search">Información Albion</button>
       </nav>
 
       <p class="dash-hint" id="dash-hint">Activa o desactiva módulos por servidor.</p>
@@ -68,16 +68,18 @@
 
       <section id="view-search" class="dash-extra-view hidden">
         <div class="modal-section">
-          <h3>Buscar en Albion (Américas)</h3>
-          <div class="search-tabs">
-            <button type="button" class="btn btn-sm search-tab active" data-search="players">Jugadores</button>
-            <button type="button" class="btn btn-sm search-tab" data-search="guilds">Gremios</button>
+          <h3>Buscar información en Albion</h3>
+          <p class="modal-meta">Consulta datos de jugadores y gremios del servidor <strong>Américas</strong>. Escribe un nombre, elige el tipo y pulsa en un resultado para ver el detalle completo.</p>
+          <div class="search-mode-tabs">
+            <button type="button" class="dash-subnav-btn search-mode-btn active" data-search="players">Jugadores</button>
+            <button type="button" class="dash-subnav-btn search-mode-btn" data-search="guilds">Gremios</button>
           </div>
-          <label class="form-label">Nombre
-            <input class="form-input" id="albion-search-q" placeholder="Escribe el nombre…" autocomplete="off">
+          <label class="form-label">Nombre del jugador o gremio
+            <input class="form-input" id="albion-search-q" placeholder="Ej: Reikoshi22, N O X O R Y…" autocomplete="off">
           </label>
-          <button type="button" class="btn btn-accent btn-sm" id="albion-search-btn">Buscar</button>
+          <button type="button" class="btn btn-accent btn-sm" id="albion-search-btn">Buscar información</button>
           <div id="albion-search-results" class="search-results"></div>
+          <div id="albion-search-detail" class="search-detail hidden"></div>
         </div>
       </section>
     </section>
