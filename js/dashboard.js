@@ -192,9 +192,19 @@ function albionLoaderHtml(text = 'Consultando Albion…') {
           <span class="duel-hilt"></span>
         </div>
       </div>
-      <div class="duel-impact">
-        <span class="duel-spark"></span>
-        <span class="duel-spark-ring"></span>
+      <div class="duel-clash">
+        <span class="duel-spark-core"></span>
+        <span class="duel-spark-flash"></span>
+        <span class="duel-spark-burst">
+          <i style="--spark-angle:0deg"></i>
+          <i style="--spark-angle:45deg"></i>
+          <i style="--spark-angle:90deg"></i>
+          <i style="--spark-angle:135deg"></i>
+          <i style="--spark-angle:180deg"></i>
+          <i style="--spark-angle:225deg"></i>
+          <i style="--spark-angle:270deg"></i>
+          <i style="--spark-angle:315deg"></i>
+        </span>
       </div>
       <div class="duel-fighter duel-fighter-right">
         <div class="duel-sword">

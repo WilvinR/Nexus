@@ -2342,45 +2342,41 @@ footer {
 
 .albion-duel {
   position: relative;
-  width: 148px;
-  height: 72px;
-  animation: duelShake 1.15s ease-in-out infinite;
+  width: 168px;
+  height: 96px;
 }
 
 .duel-fighter {
   position: absolute;
-  top: 50%;
-  width: 56px;
-  height: 64px;
-  margin-top: -32px;
+  bottom: 2px;
+  width: 44px;
+  height: 72px;
 }
 
 .duel-fighter-left {
-  left: 0;
-  animation: duelSwingLeft 1.15s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  left: 10px;
 }
 
 .duel-fighter-right {
-  right: 0;
-  animation: duelSwingRight 1.15s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  right: 10px;
 }
 
 .duel-sword {
   position: absolute;
-  bottom: 4px;
+  bottom: 0;
+  left: 50%;
   width: 16px;
-  height: 58px;
-  transform-origin: 50% 92%;
+  height: 66px;
+  margin-left: -8px;
+  transform-origin: 50% 100%;
 }
 
 .duel-fighter-left .duel-sword {
-  left: 8px;
-  transform: rotate(-38deg);
+  animation: swordArcLeft 1.3s linear infinite;
 }
 
 .duel-fighter-right .duel-sword {
-  right: 8px;
-  transform: rotate(38deg) scaleX(-1);
+  animation: swordArcRight 1.3s linear infinite;
 }
 
 .duel-blade {
@@ -2389,12 +2385,13 @@ footer {
   left: 50%;
   transform: translateX(-50%);
   width: 5px;
-  height: 42px;
+  height: 46px;
   background: linear-gradient(180deg, #f4fbff 0%, #a8d4ea 35%, #6eb8d8 70%, #c8e4f4 100%);
   border-radius: 2px 2px 1px 1px;
   box-shadow:
     0 0 10px rgba(0, 229, 255, 0.55),
     inset 1px 0 0 rgba(255, 255, 255, 0.35);
+  animation: bladeClashFlash 1.3s linear infinite;
 }
 
 .duel-blade::after {
@@ -2412,7 +2409,7 @@ footer {
 
 .duel-guard {
   position: absolute;
-  bottom: 13px;
+  bottom: 14px;
   left: 50%;
   transform: translateX(-50%);
   width: 16px;
@@ -2445,32 +2442,55 @@ footer {
   border-radius: 2px;
 }
 
-.duel-impact {
+.duel-clash {
   position: absolute;
   left: 50%;
-  top: 50%;
-  width: 28px;
-  height: 28px;
-  margin: -14px 0 0 -14px;
+  top: 14px;
+  width: 32px;
+  height: 32px;
+  margin-left: -16px;
   pointer-events: none;
 }
 
-.duel-spark {
+.duel-spark-core {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  opacity: 0;
+  background: radial-gradient(circle, #fff 0%, #ffe9a0 35%, var(--accent-bright) 55%, transparent 75%);
+  animation: sparkCore 1.3s linear infinite;
+}
+
+.duel-spark-flash {
   position: absolute;
   inset: 0;
   border-radius: 50%;
   opacity: 0;
-  background: radial-gradient(circle, #fff 0%, var(--accent-bright) 40%, transparent 72%);
-  animation: duelSparkFlash 1.15s ease-out infinite;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.95) 0%, rgba(255, 220, 120, 0.5) 40%, transparent 70%);
+  animation: sparkFlash 1.3s linear infinite;
 }
 
-.duel-spark-ring {
+.duel-spark-burst {
   position: absolute;
-  inset: 2px;
-  border-radius: 50%;
+  inset: 0;
+}
+
+.duel-spark-burst i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 11px;
+  margin: -5px 0 0 -1px;
+  border-radius: 1px;
+  background: linear-gradient(180deg, #fff 0%, #ffd56a 55%, transparent 100%);
+  transform: rotate(var(--spark-angle)) translateY(-14px);
   opacity: 0;
-  border: 2px solid rgba(255, 220, 120, 0.9);
-  animation: duelSparkRing 1.15s ease-out infinite;
+  animation: sparkParticle 1.3s linear infinite;
+}
+
+.duel-spark-burst i:nth-child(odd) {
+  animation-delay: 0.02s;
 }
 
 .albion-loader-text {
@@ -2480,102 +2500,165 @@ footer {
   letter-spacing: 0.02em;
 }
 
-@keyframes duelSwingLeft {
+@keyframes swordArcLeft {
   0%,
   100% {
-    transform: translateX(0) rotate(0deg);
+    transform: rotate(-62deg);
   }
-  28% {
-    transform: translateX(42px) rotate(14deg);
+  10% {
+    transform: rotate(-70deg);
+  }
+  24% {
+    transform: rotate(-68deg);
+  }
+  30% {
+    transform: rotate(24deg);
+  }
+  32% {
+    transform: rotate(21deg);
+  }
+  34% {
+    transform: rotate(25deg);
   }
   36% {
-    transform: translateX(40px) rotate(10deg);
+    transform: rotate(22deg);
   }
-  52% {
-    transform: translateX(18px) rotate(-6deg);
+  38% {
+    transform: rotate(24deg);
   }
-  68% {
-    transform: translateX(6px) rotate(-2deg);
+  44% {
+    transform: rotate(8deg);
+  }
+  58% {
+    transform: rotate(-28deg);
+  }
+  72% {
+    transform: rotate(-52deg);
   }
 }
 
-@keyframes duelSwingRight {
+@keyframes swordArcRight {
   0%,
   100% {
-    transform: translateX(0) rotate(0deg);
+    transform: rotate(62deg);
   }
-  28% {
-    transform: translateX(-42px) rotate(-14deg);
+  10% {
+    transform: rotate(70deg);
+  }
+  24% {
+    transform: rotate(68deg);
+  }
+  30% {
+    transform: rotate(-24deg);
+  }
+  32% {
+    transform: rotate(-21deg);
+  }
+  34% {
+    transform: rotate(-25deg);
   }
   36% {
-    transform: translateX(-40px) rotate(-10deg);
+    transform: rotate(-22deg);
   }
-  52% {
-    transform: translateX(-18px) rotate(6deg);
+  38% {
+    transform: rotate(-24deg);
   }
-  68% {
-    transform: translateX(-6px) rotate(2deg);
+  44% {
+    transform: rotate(-8deg);
+  }
+  58% {
+    transform: rotate(28deg);
+  }
+  72% {
+    transform: rotate(52deg);
   }
 }
 
-@keyframes duelSparkFlash {
+@keyframes bladeClashFlash {
   0%,
-  22%,
-  58%,
+  28%,
+  42%,
+  100% {
+    filter: none;
+    box-shadow:
+      0 0 10px rgba(0, 229, 255, 0.55),
+      inset 1px 0 0 rgba(255, 255, 255, 0.35);
+  }
+  30% {
+    filter: brightness(1.8);
+    box-shadow:
+      0 0 16px rgba(255, 255, 255, 0.95),
+      0 0 8px rgba(255, 210, 80, 0.8);
+  }
+  32%,
+  36% {
+    filter: brightness(1.45);
+    box-shadow:
+      0 0 12px rgba(255, 240, 180, 0.85),
+      0 0 6px rgba(255, 200, 60, 0.7);
+  }
+}
+
+@keyframes sparkCore {
+  0%,
+  28%,
+  44%,
   100% {
     opacity: 0;
     transform: scale(0.2);
   }
-  32% {
+  30% {
     opacity: 1;
-    transform: scale(1.35);
+    transform: scale(1.2);
   }
+  32%,
   38% {
-    opacity: 0.75;
-    transform: scale(0.85);
+    opacity: 0.85;
+    transform: scale(0.95);
   }
-  44% {
-    opacity: 0;
-    transform: scale(1.1);
-  }
-}
-
-@keyframes duelSparkRing {
-  0%,
-  22%,
-  58%,
-  100% {
-    opacity: 0;
-    transform: scale(0.3);
-  }
-  32% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  44% {
-    opacity: 0;
-    transform: scale(1.6);
+  40% {
+    opacity: 0.4;
+    transform: scale(0.7);
   }
 }
 
-@keyframes duelShake {
+@keyframes sparkFlash {
   0%,
-  24%,
-  48%,
+  28%,
+  36%,
   100% {
-    transform: translateX(0);
+    opacity: 0;
+    transform: scale(0.5);
   }
   30% {
-    transform: translateX(-2px);
+    opacity: 1;
+    transform: scale(1.4);
   }
   32% {
-    transform: translateX(2px);
+    opacity: 0.55;
+    transform: scale(1);
   }
-  34% {
-    transform: translateX(-1px);
+}
+
+@keyframes sparkParticle {
+  0%,
+  28%,
+  46%,
+  100% {
+    opacity: 0;
+    transform: rotate(var(--spark-angle)) translateY(-6px) scaleY(0.4);
   }
-  36% {
-    transform: translateX(1px);
+  30% {
+    opacity: 1;
+    transform: rotate(var(--spark-angle)) translateY(-18px) scaleY(1);
+  }
+  38% {
+    opacity: 0.35;
+    transform: rotate(var(--spark-angle)) translateY(-24px) scaleY(0.6);
+  }
+  42% {
+    opacity: 0;
+    transform: rotate(var(--spark-angle)) translateY(-28px) scaleY(0.3);
   }
 }
 
