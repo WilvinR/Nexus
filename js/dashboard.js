@@ -506,8 +506,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.querySelectorAll('.dash-subnav-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (btn.dataset.view === 'servers') showGuildGrid();
-      switchDashView(btn.dataset.view);
+      const view = btn.dataset.view;
+      if (!view) return;
+      if (view === 'servers') showGuildGrid();
+      switchDashView(view);
     });
   });
 
