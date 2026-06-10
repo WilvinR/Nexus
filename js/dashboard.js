@@ -184,10 +184,25 @@ function bindCopyButtons(root) {
 
 function albionLoaderHtml(text = 'Consultando Albion…') {
   return `<div class="albion-loader" role="status" aria-live="polite">
-    <div class="albion-loader-swords" aria-hidden="true">
-      <span class="albion-sword albion-sword-left">⚔</span>
-      <span class="albion-sword-spark"></span>
-      <span class="albion-sword albion-sword-right">⚔</span>
+    <div class="albion-duel" aria-hidden="true">
+      <div class="duel-fighter duel-fighter-left">
+        <div class="duel-sword">
+          <span class="duel-blade"></span>
+          <span class="duel-guard"></span>
+          <span class="duel-hilt"></span>
+        </div>
+      </div>
+      <div class="duel-impact">
+        <span class="duel-spark"></span>
+        <span class="duel-spark-ring"></span>
+      </div>
+      <div class="duel-fighter duel-fighter-right">
+        <div class="duel-sword">
+          <span class="duel-blade"></span>
+          <span class="duel-guard"></span>
+          <span class="duel-hilt"></span>
+        </div>
+      </div>
     </div>
     <p class="albion-loader-text">${escapeHtml(text)}</p>
   </div>`;

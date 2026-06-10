@@ -2335,47 +2335,142 @@ footer {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 16px;
   padding: 28px 16px;
-  min-height: 100px;
+  min-height: 110px;
 }
 
-.albion-loader-swords {
+.albion-duel {
   position: relative;
-  width: 96px;
-  height: 52px;
+  width: 148px;
+  height: 72px;
+  animation: duelShake 1.15s ease-in-out infinite;
 }
 
-.albion-sword {
+.duel-fighter {
   position: absolute;
   top: 50%;
-  font-size: 2.2rem;
-  line-height: 1;
-  filter: drop-shadow(0 0 8px rgba(0, 229, 255, 0.45));
-  transform-origin: center center;
+  width: 56px;
+  height: 64px;
+  margin-top: -32px;
 }
 
-.albion-sword-left {
-  left: 4px;
-  animation: swordClashLeft 0.55s ease-in-out infinite alternate;
+.duel-fighter-left {
+  left: 0;
+  animation: duelSwingLeft 1.15s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
-.albion-sword-right {
-  right: 4px;
-  animation: swordClashRight 0.55s ease-in-out infinite alternate;
+.duel-fighter-right {
+  right: 0;
+  animation: duelSwingRight 1.15s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
-.albion-sword-spark {
+.duel-sword {
+  position: absolute;
+  bottom: 4px;
+  width: 16px;
+  height: 58px;
+  transform-origin: 50% 92%;
+}
+
+.duel-fighter-left .duel-sword {
+  left: 8px;
+  transform: rotate(-38deg);
+}
+
+.duel-fighter-right .duel-sword {
+  right: 8px;
+  transform: rotate(38deg) scaleX(-1);
+}
+
+.duel-blade {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 5px;
+  height: 42px;
+  background: linear-gradient(180deg, #f4fbff 0%, #a8d4ea 35%, #6eb8d8 70%, #c8e4f4 100%);
+  border-radius: 2px 2px 1px 1px;
+  box-shadow:
+    0 0 10px rgba(0, 229, 255, 0.55),
+    inset 1px 0 0 rgba(255, 255, 255, 0.35);
+}
+
+.duel-blade::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 3px solid transparent;
+  border-right: 3px solid transparent;
+  border-bottom: 5px solid #f4fbff;
+}
+
+.duel-guard {
+  position: absolute;
+  bottom: 13px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 16px;
+  height: 4px;
+  background: linear-gradient(180deg, #f0c85a, #b8860b);
+  border-radius: 1px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.duel-hilt {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 14px;
+  background: linear-gradient(180deg, #6b4f1d, #3d2e12);
+  border-radius: 0 0 3px 3px;
+}
+
+.duel-hilt::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 5px;
+  background: #d4a853;
+  border-radius: 2px;
+}
+
+.duel-impact {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 10px;
-  height: 10px;
-  margin: -5px 0 0 -5px;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  pointer-events: none;
+}
+
+.duel-spark {
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
-  background: radial-gradient(circle, #fff 0%, var(--accent-bright) 40%, transparent 70%);
   opacity: 0;
-  animation: swordSpark 0.55s ease-in-out infinite alternate;
+  background: radial-gradient(circle, #fff 0%, var(--accent-bright) 40%, transparent 72%);
+  animation: duelSparkFlash 1.15s ease-out infinite;
+}
+
+.duel-spark-ring {
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  opacity: 0;
+  border: 2px solid rgba(255, 220, 120, 0.9);
+  animation: duelSparkRing 1.15s ease-out infinite;
 }
 
 .albion-loader-text {
@@ -2385,32 +2480,102 @@ footer {
   letter-spacing: 0.02em;
 }
 
-@keyframes swordClashLeft {
-  from {
-    transform: translateY(-50%) rotate(-55deg) translateX(0);
+@keyframes duelSwingLeft {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
   }
-  to {
-    transform: translateY(-50%) rotate(10deg) translateX(22px);
+  28% {
+    transform: translateX(42px) rotate(14deg);
+  }
+  36% {
+    transform: translateX(40px) rotate(10deg);
+  }
+  52% {
+    transform: translateX(18px) rotate(-6deg);
+  }
+  68% {
+    transform: translateX(6px) rotate(-2deg);
   }
 }
 
-@keyframes swordClashRight {
-  from {
-    transform: translateY(-50%) scaleX(-1) rotate(-55deg) translateX(0);
+@keyframes duelSwingRight {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
   }
-  to {
-    transform: translateY(-50%) scaleX(-1) rotate(10deg) translateX(22px);
+  28% {
+    transform: translateX(-42px) rotate(-14deg);
+  }
+  36% {
+    transform: translateX(-40px) rotate(-10deg);
+  }
+  52% {
+    transform: translateX(-18px) rotate(6deg);
+  }
+  68% {
+    transform: translateX(-6px) rotate(2deg);
   }
 }
 
-@keyframes swordSpark {
-  from {
+@keyframes duelSparkFlash {
+  0%,
+  22%,
+  58%,
+  100% {
     opacity: 0;
-    transform: scale(0.4);
+    transform: scale(0.2);
   }
-  to {
+  32% {
     opacity: 1;
-    transform: scale(1.2);
+    transform: scale(1.35);
+  }
+  38% {
+    opacity: 0.75;
+    transform: scale(0.85);
+  }
+  44% {
+    opacity: 0;
+    transform: scale(1.1);
+  }
+}
+
+@keyframes duelSparkRing {
+  0%,
+  22%,
+  58%,
+  100% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  32% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  44% {
+    opacity: 0;
+    transform: scale(1.6);
+  }
+}
+
+@keyframes duelShake {
+  0%,
+  24%,
+  48%,
+  100% {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(-2px);
+  }
+  32% {
+    transform: translateX(2px);
+  }
+  34% {
+    transform: translateX(-1px);
+  }
+  36% {
+    transform: translateX(1px);
   }
 }
 
