@@ -688,8 +688,8 @@ async function loadHelpVideosAdmin() {
       .map(
         (v) => `<div class="capsule" data-id="${v.id}">
           <span class="capsule-name">${esc(v.title)}</span>
-          <button type="button" class="icon-btn" data-hv-edit="${v.id}" title="Editar">✏️</button>
-          <button type="button" class="icon-btn" data-hv-del="${v.id}" title="Eliminar">✕</button>
+          <button type="button" class="icon-btn" data-hv-edit="${v.id}" title="Editar" aria-label="Editar">✏️</button>
+          <button type="button" class="icon-btn icon-btn-danger" data-hv-del="${v.id}" title="Eliminar" aria-label="Eliminar">×</button>
         </div>`,
       )
       .join('');

@@ -1055,11 +1055,44 @@ footer {
 
 .capsule-name { flex: 1; color: var(--text); font-size: 0.95rem; }
 .icon-btn {
-  border: none;
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--steel);
   cursor: pointer;
-  font-size: 1rem;
-  padding: 4px;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.icon-btn:hover,
+.icon-btn:focus-visible {
+  border-color: var(--accent);
+  color: var(--accent-bright);
+  background: rgba(0, 229, 255, 0.1);
+  outline: none;
+}
+
+.icon-btn-danger {
+  border-color: rgba(231, 76, 60, 0.5);
+  color: #ff8a7a;
+  background: rgba(231, 76, 60, 0.12);
+}
+
+.icon-btn-danger:hover,
+.icon-btn-danger:focus-visible {
+  border-color: #e74c3c;
+  color: #ffb4aa;
+  background: rgba(231, 76, 60, 0.22);
 }
 
 .sub-form {
