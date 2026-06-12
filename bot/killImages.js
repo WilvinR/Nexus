@@ -59,6 +59,13 @@ function cacheSetItem(key, img) {
   IMAGE_CACHE.set(key, img);
 }
 
+/** Libera los buffers PNG tras enviar el mensaje a Discord. */
+function releaseKillBuffers(built) {
+  if (!built || built.skip) return;
+  built.mainBuffer = null;
+  built.statsBuffer = null;
+}
+
 async function mapWithConcurrency(items, fn, concurrency) {
   if (!items.length) return [];
   const results = new Array(items.length);
@@ -587,6 +594,7 @@ function getMemoryStats() {
 
 module.exports = {
   buildKillNotificationImages,
+  releaseKillBuffers,
   formatNumber,
   getItemPrice,
   getMemoryStats,

@@ -115,32 +115,46 @@ async function resolveBattleTrackInput(trackType, albionId) {
   };
 }
 
+function releaseBattleImage(built) {
+  if (built) built.buffer = null;
+}
+
 async function sendGuildBattle(channel, battle, albionGuildId, log) {
-  const built = buildGuildBattleImage(battle, albionGuildId);
-  const embed = new EmbedBuilder()
-    .setTitle(built.title)
-    .setColor(0x1f2937)
-    .setTimestamp(built.battleTime)
-    .setImage('attachment://battle.png')
-    .setFooter({ text: `Battle Report • ${built.battleTime.toLocaleString('es-ES')}` });
-  await channel.send({
-    embeds: [embed],
-    files: [new AttachmentBuilder(built.buffer, { name: 'battle.png' })],
-  });
+  let built;
+  try {
+    built = buildGuildBattleImage(battle, albionGuildId);
+    const embed = new EmbedBuilder()
+      .setTitle(built.title)
+      .setColor(0x1f2937)
+      .setTimestamp(built.battleTime)
+      .setImage('attachment://battle.png')
+      .setFooter({ text: `Battle Report • ${built.battleTime.toLocaleString('es-ES')}` });
+    await channel.send({
+      embeds: [embed],
+      files: [new AttachmentBuilder(built.buffer, { name: 'battle.png' })],
+    });
+  } finally {
+    releaseBattleImage(built);
+  }
 }
 
 async function sendAllianceBattle(channel, battle, allianceId, allianceTag, log) {
-  const built = buildAllianceBattleImage(battle, allianceId, allianceTag);
-  const embed = new EmbedBuilder()
-    .setTitle(built.title)
-    .setColor(0x1f2937)
-    .setTimestamp(built.battleTime)
-    .setImage('attachment://alliance_battle.png')
-    .setFooter({ text: `Battle Report • ${built.battleTime.toLocaleString('es-ES')}` });
-  await channel.send({
-    embeds: [embed],
-    files: [new AttachmentBuilder(built.buffer, { name: 'alliance_battle.png' })],
-  });
+  let built;
+  try {
+    built = buildAllianceBattleImage(battle, allianceId, allianceTag);
+    const embed = new EmbedBuilder()
+      .setTitle(built.title)
+      .setColor(0x1f2937)
+      .setTimestamp(built.battleTime)
+      .setImage('attachment://alliance_battle.png')
+      .setFooter({ text: `Battle Report • ${built.battleTime.toLocaleString('es-ES')}` });
+    await channel.send({
+      embeds: [embed],
+      files: [new AttachmentBuilder(built.buffer, { name: 'alliance_battle.png' })],
+    });
+  } finally {
+    releaseBattleImage(built);
+  }
 }
 
 function countGuildPlayers(battle, guildId) {

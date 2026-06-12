@@ -2386,6 +2386,19 @@ footer {
   text-align: left;
 }
 
+.memory-rss-heap {
+  margin-bottom: 8px;
+}
+
+.memory-table-compare td strong {
+  color: var(--accent-bright);
+}
+
+.memory-table-compare tr:first-child th,
+.memory-table-compare tr:first-child td {
+  padding-top: 4px;
+}
+
 .memory-detail-title {
   margin: 14px 0 8px;
   font-family: 'Rajdhani', sans-serif;

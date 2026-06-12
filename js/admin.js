@@ -55,6 +55,20 @@ function renderMemoryDiagnostics(detail) {
   const caches = detail.caches || {};
   const suspects = detail.suspects || [];
 
+  const nativeEst = Math.max(0, m.rssMb - m.heapMb);
+  const rssHeapHtml = `<div class="memory-rss-heap">
+    <table class="memory-table memory-table-compare">
+      <tbody>
+        <tr><th>RSS total</th><td><strong>${m.rssMb} MB</strong> — memoria real del proceso en el servidor</td></tr>
+        <tr><th>Heap (JS)</th><td><strong>${m.heapMb} MB</strong> — objetos JavaScript</td></tr>
+        <tr><th>Nativo (est.)</th><td><strong>${nativeEst} MB</strong> — RSS − Heap (canvas, iconos kill, Discord nativo)</td></tr>
+        <tr><th>External</th><td>${m.externalMb} MB</td></tr>
+        <tr><th>ArrayBuffers</th><td>${m.arrayBuffersMb} MB</td></tr>
+      </tbody>
+    </table>
+    <p class="modal-meta">Si RSS sube con kills y Heap no tanto, el peso está en memoria nativa (imágenes/canvas), no en objetos JS.</p>
+  </div>`;
+
   const suspectHtml = suspects.length
     ? `<ul class="memory-suspects">${suspects
         .map(
@@ -62,7 +76,7 @@ function renderMemoryDiagnostics(detail) {
             `<li class="memory-suspect severity-${esc(s.severity)}"><strong>${esc(s.label)}</strong></li>`,
         )
         .join('')}</ul>`
-    : '<p class="modal-meta">Sin sospechosos claros — revisa RSS vs Heap abajo.</p>';
+    : '<p class="modal-meta">Sin sospechosos automáticos — usa la tabla RSS vs Heap y los cachés.</p>';
 
   const cacheRows = [
     ['Imágenes kill', caches.killImages ? `${caches.killImages.imageCache}/${caches.killImages.imageCacheMax}` : '—'],
@@ -76,14 +90,14 @@ function renderMemoryDiagnostics(detail) {
     'Diagnóstico de RAM',
     'Desglose en tiempo real. La causa más habitual es la caché de miembros de Discord (intent GuildMembers).',
     [
-      statCard('RSS total', `${m.rssMb} MB`, 'Memoria total del proceso'),
-      statCard('Heap JS', `${m.heapMb} MB`, 'Objetos JavaScript'),
-      statCard('Nativa / Ext', `${m.externalMb} MB`, 'Canvas, buffers, librerías nativas'),
-      statCard('Miembros en caché', (d.membersCached ?? 0).toLocaleString('es-ES'), 'Principal sospechoso si es alto'),
+      statCard('Miembros en caché', (d.membersCached ?? 0).toLocaleString('es-ES'), 'Discord.js — suele ser el mayor consumo base'),
       statCard('Canales caché', d.channels ?? '—', 'Canales cargados en Discord.js'),
       statCard('Killboard activos', db.killEntities ?? '—', 'Entidades monitoreadas en DB'),
+      statCard('Gucci suscriptores', db.gucciSubscribers ?? '—', 'Servidores con feed Gucci Kills'),
     ].join('') +
       `<div class="memory-detail-block">
+        <h4 class="memory-detail-title">RSS vs Heap</h4>
+        ${rssHeapHtml}
         <h4 class="memory-detail-title">Causas probables</h4>
         ${suspectHtml}
         <h4 class="memory-detail-title">Cachés del bot</h4>

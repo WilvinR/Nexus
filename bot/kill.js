@@ -11,7 +11,7 @@ const {
   AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
-const { buildKillNotificationImages } = require('./killImages');
+const { buildKillNotificationImages, releaseKillBuffers } = require('./killImages');
 
 const API = 'https://gameinfo.albiononline.com/api/gameinfo';
 const PREFIX = 'kill';
@@ -125,8 +125,9 @@ async function sendKillNotification(channel, event, entity, log, bypassDedupe = 
   const cfg = entityConfig(entity);
 
   for (let attempt = 0; attempt < notificationRetries; attempt++) {
+    let built;
     try {
-      const built = await buildKillNotificationImages(event, cfg);
+      built = await buildKillNotificationImages(event, cfg);
       if (built.skip) return false;
       const eventKind = built.isKill ? 'kill' : 'death';
 
@@ -189,6 +190,8 @@ async function sendKillNotification(channel, event, entity, log, bypassDedupe = 
       } else {
         return false;
       }
+    } finally {
+      releaseKillBuffers(built);
     }
   }
   return false;
@@ -458,32 +461,37 @@ function collectNewGucciEvents(events, lastEventId, sentSet) {
 }
 
 async function sendGucciKill(channel, event, log) {
-  const built = await buildKillNotificationImages(event, GUCCI_GLOBAL_ENTITY);
-  if (built.skip) return false;
+  let built;
+  try {
+    built = await buildKillNotificationImages(event, GUCCI_GLOBAL_ENTITY);
+    if (built.skip) return false;
 
-  const embedColor = 0x57f287;
-  const embedMain = new EmbedBuilder()
-    .setColor(embedColor)
-    .setTimestamp(built.eventTime)
-    .setImage('attachment://kill_equip.png');
-  if (built.eventId) {
-    embedMain.setURL(`https://albiononline.com/en/killboard/kill/${built.eventId}`);
+    const embedColor = 0x57f287;
+    const embedMain = new EmbedBuilder()
+      .setColor(embedColor)
+      .setTimestamp(built.eventTime)
+      .setImage('attachment://kill_equip.png');
+    if (built.eventId) {
+      embedMain.setURL(`https://albiononline.com/en/killboard/kill/${built.eventId}`);
+    }
+
+    const files = [new AttachmentBuilder(built.mainBuffer, { name: 'kill_equip.png' })];
+    const embeds = [embedMain];
+    if (built.statsBuffer) {
+      files.push(new AttachmentBuilder(built.statsBuffer, { name: 'combat_stats.png' }));
+      embeds.push(
+        new EmbedBuilder()
+          .setColor(embedColor)
+          .setTimestamp(built.eventTime)
+          .setImage('attachment://combat_stats.png'),
+      );
+    }
+
+    await channel.send({ content: built.content, embeds, files });
+    return true;
+  } finally {
+    releaseKillBuffers(built);
   }
-
-  const files = [new AttachmentBuilder(built.mainBuffer, { name: 'kill_equip.png' })];
-  const embeds = [embedMain];
-  if (built.statsBuffer) {
-    files.push(new AttachmentBuilder(built.statsBuffer, { name: 'combat_stats.png' }));
-    embeds.push(
-      new EmbedBuilder()
-        .setColor(embedColor)
-        .setTimestamp(built.eventTime)
-        .setImage('attachment://combat_stats.png'),
-    );
-  }
-
-  await channel.send({ content: built.content, embeds, files });
-  return true;
 }
 
 async function broadcastGucciKill(getDb, client, event, log) {
