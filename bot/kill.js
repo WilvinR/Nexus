@@ -16,10 +16,8 @@ const { buildKillNotificationImages } = require('./killImages');
 const API = 'https://gameinfo.albiononline.com/api/gameinfo';
 const PREFIX = 'kill';
 const GUCCI_MIN_FAME = parseInt(process.env.GUCCI_MIN_FAME || '2000000', 10) || 2_000_000;
-const GUCCI_CHECK_MS = parseInt(process.env.GUCCI_CHECK_MS || '30000', 10) || 30_000;
-const GUCCI_NOTIFY_DELAY_MS = (parseFloat(process.env.GUCCI_NOTIFICATION_DELAY || '5') || 5) * 1000;
-const GUCCI_PAGE_SIZE = 51;
-const GUCCI_MAX_PAGES = Math.max(3, parseInt(process.env.GUCCI_MAX_PAGES || '15', 10) || 15);
+const GUCCI_CHECK_MS = parseInt(process.env.GUCCI_CHECK_MS || '60000', 10) || 60_000;
+const GUCCI_NOTIFY_DELAY_MS = (parseFloat(process.env.GUCCI_NOTIFICATION_DELAY || '8') || 8) * 1000;
 const GUCCI_GLOBAL_ENTITY = {
   name: 'Gucci Kills',
   entity_type: 'global',
@@ -443,157 +441,107 @@ function upsertGucciConfig(getDb, guildId, channelId) {
     .run(gid(guildId), String(channelId));
 }
 
-function upsertGucciConfig(getDb, guildId, channelId) {
-  getDb()
-    .prepare(`
-      INSERT INTO gucci_kills_config (discord_guild_id, channel_id, enabled)
-      VALUES (?, ?, 1)
-      ON CONFLICT(discord_guild_id) DO UPDATE SET channel_id = excluded.channel_id, enabled = 1
-    `)
-    .run(gid(guildId), String(channelId));
-}
+function collectNewGucciEvents(events, lastEventId, sentSet) {
+  if (!events?.length) return { seed: null, events: [] };
+  const top = String(events[0].EventId);
+  if (!lastEventId) return { seed: top, events: [] };
 
-async function fetchEventsSinceCursor(lastEventId, log) {
-  const collected = [];
-  let topId = null;
-
-  for (let page = 0; page < GUCCI_MAX_PAGES; page++) {
-    const res = await apiGet(`${API}/events?limit=${GUCCI_PAGE_SIZE}&offset=${page * GUCCI_PAGE_SIZE}`);
-    if (!res.ok || !Array.isArray(res.data) || !res.data.length) break;
-
-    if (!topId) topId = String(res.data[0].EventId);
-
-    for (const ev of res.data) {
-      const eid = String(ev.EventId);
-      if (lastEventId && eid === lastEventId) {
-        return { topId, events: collected, foundCursor: true };
-      }
-      collected.push(ev);
-    }
-
-    if (res.data.length < GUCCI_PAGE_SIZE) break;
+  const out = [];
+  for (const ev of events) {
+    const eid = String(ev.EventId);
+    if (eid === lastEventId) break;
+    if (sentSet.has(eid)) continue;
+    if (isGucciEvent(ev)) out.push(ev);
   }
-
-  if (lastEventId) {
-    log.warn(
-      `[gucci-kills] Cursor ${lastEventId} no encontrado en ${GUCCI_MAX_PAGES} páginas (${collected.length} eventos)`,
-    );
-  }
-  return { topId, events: collected, foundCursor: !lastEventId };
+  out.reverse();
+  return { seed: null, events: out };
 }
 
 async function sendGucciKill(channel, event, log) {
-  try {
-    const built = await buildKillNotificationImages(event, GUCCI_GLOBAL_ENTITY);
-    if (built.skip) return false;
+  const built = await buildKillNotificationImages(event, GUCCI_GLOBAL_ENTITY);
+  if (built.skip) return false;
 
-    const embedColor = 0x57f287;
-    const embedMain = new EmbedBuilder()
-      .setColor(embedColor)
-      .setTimestamp(built.eventTime)
-      .setImage('attachment://kill_equip.png');
-    if (built.eventId) {
-      embedMain.setURL(`https://albiononline.com/en/killboard/kill/${built.eventId}`);
-    }
-
-    const files = [new AttachmentBuilder(built.mainBuffer, { name: 'kill_equip.png' })];
-    const embeds = [embedMain];
-    if (built.statsBuffer) {
-      files.push(new AttachmentBuilder(built.statsBuffer, { name: 'combat_stats.png' }));
-      embeds.push(
-        new EmbedBuilder()
-          .setColor(embedColor)
-          .setTimestamp(built.eventTime)
-          .setImage('attachment://combat_stats.png'),
-      );
-    }
-
-    await channel.send({ content: built.content, embeds, files });
-    return true;
-  } catch (e) {
-    log.warn(`[gucci-kills] send: ${e.message}`);
-    return false;
+  const embedColor = 0x57f287;
+  const embedMain = new EmbedBuilder()
+    .setColor(embedColor)
+    .setTimestamp(built.eventTime)
+    .setImage('attachment://kill_equip.png');
+  if (built.eventId) {
+    embedMain.setURL(`https://albiononline.com/en/killboard/kill/${built.eventId}`);
   }
+
+  const files = [new AttachmentBuilder(built.mainBuffer, { name: 'kill_equip.png' })];
+  const embeds = [embedMain];
+  if (built.statsBuffer) {
+    files.push(new AttachmentBuilder(built.statsBuffer, { name: 'combat_stats.png' }));
+    embeds.push(
+      new EmbedBuilder()
+        .setColor(embedColor)
+        .setTimestamp(built.eventTime)
+        .setImage('attachment://combat_stats.png'),
+    );
+  }
+
+  await channel.send({ content: built.content, embeds, files });
+  return true;
 }
 
 async function broadcastGucciKill(getDb, client, event, log) {
   const rows = getDb().prepare('SELECT * FROM gucci_kills_config WHERE enabled = 1').all();
-  if (!rows.length) return false;
+  for (const row of rows) {
+    const guild = client.guilds.cache.get(row.discord_guild_id);
+    if (!guild) continue;
+    const channel = guild.channels.cache.get(row.channel_id);
+    if (!channel?.isTextBased()) continue;
 
-  let success = true;
-  let delivered = false;
-
-  const task = gucciNotifyChain.then(async () => {
-    for (const row of rows) {
-      const guild = client.guilds.cache.get(row.discord_guild_id);
-      if (!guild) continue;
-      const channel = guild.channels.cache.get(row.channel_id);
-      if (!channel?.isTextBased()) continue;
-
-      const ok = await sendGucciKill(channel, event, log);
-      if (ok) delivered = true;
-      else success = false;
-
-      if (GUCCI_NOTIFY_DELAY_MS > 0) {
-        await new Promise((r) => setTimeout(r, GUCCI_NOTIFY_DELAY_MS));
+    gucciNotifyChain = gucciNotifyChain.then(async () => {
+      try {
+        await sendGucciKill(channel, event, log);
+        if (GUCCI_NOTIFY_DELAY_MS > 0) await new Promise((r) => setTimeout(r, GUCCI_NOTIFY_DELAY_MS));
+      } catch (e) {
+        log.warn(`[gucci-kills] ${row.discord_guild_id}: ${e.message}`);
       }
-    }
-  });
-
-  gucciNotifyChain = task.catch(() => {});
-  await task;
-  return delivered && success;
+    });
+  }
+  await gucciNotifyChain;
 }
 
 async function runGucciMonitor(getDb, client, log) {
   const active = getDb().prepare('SELECT 1 FROM gucci_kills_config WHERE enabled = 1 LIMIT 1').get();
   if (!active) return;
 
+  const res = await apiGet(`${API}/events?limit=50&offset=0`);
+  if (!res.ok || !Array.isArray(res.data) || !res.data.length) return;
+
   const state = loadGucciFeedState(getDb);
   const sentSet = new Set(state.sentIds);
-  const { topId, events, foundCursor } = await fetchEventsSinceCursor(state.lastEventId, log);
-  if (!topId) return;
+  const { seed, events: newEvents } = collectNewGucciEvents(res.data, state.lastEventId, sentSet);
 
-  if (!state.lastEventId) {
-    saveGucciFeedState(getDb, topId, state.sentIds);
+  if (seed) {
+    saveGucciFeedState(getDb, seed, state.sentIds);
     log.info('[gucci-kills] Feed inicializado (sin historial)');
     return;
   }
 
-  if (!events.length) {
+  const topId = String(res.data[0].EventId);
+  if (!newEvents.length) {
     if (topId !== state.lastEventId) saveGucciFeedState(getDb, topId, state.sentIds);
     return;
   }
 
   const sentIds = [...state.sentIds];
-  let cursor = state.lastEventId;
-  const ordered = [...events].reverse();
-
-  for (const ev of ordered) {
+  for (const ev of newEvents) {
     const eid = String(ev.EventId);
-
-    if (isGucciEvent(ev) && !sentSet.has(eid)) {
-      log.info(
-        `[gucci-kills] ${ev.Killer?.Name || '?'} → ${ev.Victim?.Name || '?'} (${Math.round((ev.TotalVictimKillFame || 0) / 1e6)}M)`,
-      );
-      const ok = await broadcastGucciKill(getDb, client, ev, log);
-      if (!ok) {
-        saveGucciFeedState(getDb, cursor, sentIds);
-        log.warn(`[gucci-kills] Reintento pendiente para evento ${eid}`);
-        return;
-      }
-      sentSet.add(eid);
-      sentIds.push(eid);
-    }
-
-    cursor = eid;
+    if (sentSet.has(eid)) continue;
+    sentSet.add(eid);
+    sentIds.push(eid);
+    log.info(
+      `[gucci-kills] ${ev.Killer?.Name || '?'} → ${ev.Victim?.Name || '?'} (${Math.round((ev.TotalVictimKillFame || 0) / 1e6)}M)`,
+    );
+    await broadcastGucciKill(getDb, client, ev, log);
   }
 
   saveGucciFeedState(getDb, topId, sentIds);
-
-  if (!foundCursor) {
-    log.warn('[gucci-kills] Paginación incompleta; revisa GUCCI_MAX_PAGES o GUCCI_CHECK_MS');
-  }
 }
 
 const gucciKillsCmd = new SlashCommandBuilder()
@@ -742,9 +690,14 @@ async function cmdConfig(ix, { getDb }) {
   await ix.reply({ embeds: [embed], ephemeral: false });
 }
 
+function getMemoryStats() {
+  return { pending: pending.size, recentEvents: recentEvents.size };
+}
+
 module.exports = {
   id: 'kill',
   GUCCI_MIN_FAME,
+  getMemoryStats,
   commands: [{ data: killboard }, { data: gucciKillsCmd }, { data: gucciKillsDetenerCmd }],
 
   onGuildRemove(guildId, { getDb }) {

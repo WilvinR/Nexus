@@ -38,6 +38,8 @@ async function albionFetch(url) {
 const albionSearch = (q) => albionFetch(`${ALBION}/search?q=${encodeURIComponent(q)}`);
 const albionPlayer = (id) => albionFetch(`${ALBION}/players/${id}`);
 const albionGuild = (id) => albionFetch(`${ALBION}/guilds/${id}`);
+const albionGuildData = (id) => albionFetch(`${ALBION}/guilds/${id}/data`);
+const albionGuildMembers = (id) => albionFetch(`${ALBION}/guilds/${id}/members`);
 const albionAlliance = (id) => albionFetch(`${ALBION}/alliances/${id}`);
 
 function fmtFame(n) {
@@ -55,77 +57,64 @@ function fmtFounded(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
+  return d.toISOString().slice(0, 10);
 }
 
-async function allianceLabel(guild) {
-  let tag = guild.AllianceTag || '';
-  let name = guild.AllianceName || '';
-  if (guild.AllianceId && (!name || !tag)) {
+async function resolveAllianceTag(guild) {
+  let tag = guild.AllianceTag || guild.AllianceName || '';
+  if (guild.AllianceId && !tag) {
     const res = await albionAlliance(guild.AllianceId);
     if (res.ok && res.data) {
-      name = res.data.AllianceName || name;
-      tag = res.data.AllianceTag || tag;
+      tag = res.data.Tag || res.data.AllianceTag || res.data.AllianceName || '';
     }
   }
-  if (!guild.AllianceId && !tag && !name) return 'Sin alianza';
-  if (tag && name) return `[${tag}] ${name}`;
-  if (tag) return `[${tag}]`;
-  if (name) return name;
-  return '—';
+  if (!guild.AllianceId) return '—';
+  return tag || '—';
 }
 
-function buildGuildInfoEmbed(guild, allianceText) {
-  const kill = guild.killFame ?? guild.KillFame ?? 0;
-  const death = guild.DeathFame ?? 0;
-  const kd = death > 0 && kill > 0 ? (kill / death).toFixed(2) : '—';
+async function fetchTopPlayers(guildId) {
+  const dataRes = await albionGuildData(guildId);
+  if (dataRes.ok && dataRes.data?.topPlayers?.length) {
+    return dataRes.data.topPlayers;
+  }
+  const memRes = await albionGuildMembers(guildId);
+  if (!memRes.ok || !Array.isArray(memRes.data)) return [];
+  return [...memRes.data].sort((a, b) => (b.KillFame || 0) - (a.KillFame || 0)).slice(0, 5);
+}
 
-  let desc =
-    `**ID del gremio** — registro, killboard, batallas (gremio)\n\`\`\`\n${guild.Id}\n\`\`\``;
-  if (guild.AllianceId) {
-    desc += `\n**ID de la alianza** — batallas (alianza), registro\n\`\`\`\n${guild.AllianceId}\n\`\`\``;
+function formatTopPlayers(topPlayers) {
+  if (!topPlayers?.length) return '_Sin datos_';
+  return topPlayers
+    .slice(0, 5)
+    .map((p) => {
+      const fame = p.KillFame ?? p.killFame ?? 0;
+      return `\`${p.Name}\` · **${fmtFame(fame)}**`;
+    })
+    .join('\n');
+}
+
+function buildGuildInfoEmbed(guild, allianceTag, topPlayers) {
+  const desc = [
+    `👤 **Founder**\n${guild.FounderName || '—'}`,
+    `📅 **Created**\n${fmtFounded(guild.Founded)}`,
+    `🏷️ **Alliance Tag**\n${allianceTag}`,
+    `👥 **Total Members**\n${guild.MemberCount ?? '—'}`,
+  ];
+  if (topPlayers?.length) {
+    desc.push(`⭐ **Top Players**\n${formatTopPlayers(topPlayers)}`);
   }
 
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setTitle(`🏰 ${guild.Name}`)
     .setColor(0x6b8e23)
-    .setDescription(desc)
-    .addFields(
-      { name: 'Alianza', value: allianceText, inline: true },
-      { name: 'Miembros', value: String(guild.MemberCount ?? '—'), inline: true },
-      { name: 'Fundador', value: guild.FounderName || '—', inline: true },
-      { name: 'Fundado', value: fmtFounded(guild.Founded), inline: true },
-      { name: 'Kill Fame', value: fmtFame(kill), inline: true },
-      { name: 'Death Fame', value: fmtFame(death), inline: true },
-      { name: 'Ratio K/D (fame)', value: kd, inline: true },
-      {
-        name: 'Ataques / Defensas',
-        value: `${guild.AttacksWon != null ? guild.AttacksWon : '—'} / ${guild.DefensesWon != null ? guild.DefensesWon : '—'}`,
-        inline: true,
-      },
-    )
-    .setFooter({ text: 'Albion Game Info · Américas' })
-    .setTimestamp();
-}
+    .setDescription(desc.join('\n'))
+    .addFields({ name: '🆔 Guild ID', value: `\`\`\`${guild.Id}\`\`\``, inline: false });
 
-function guildInfoCopyRow(guild) {
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(`registro:copy:${guild.Id}`)
-      .setLabel('Copiar ID gremio')
-      .setStyle(ButtonStyle.Secondary)
-      .setEmoji('📋'),
-  );
   if (guild.AllianceId) {
-    row.addComponents(
-      new ButtonBuilder()
-        .setCustomId(`registro:copy:${guild.AllianceId}`)
-        .setLabel('Copiar ID alianza')
-        .setStyle(ButtonStyle.Secondary)
-        .setEmoji('📋'),
-    );
+    embed.addFields({ name: '🌐 Alliance ID', value: `\`\`\`${guild.AllianceId}\`\`\``, inline: false });
   }
-  return row;
+
+  return embed.setFooter({ text: 'Albion Game Info · Américas' }).setTimestamp();
 }
 
 async function replyGuildInfo(ix, guildId) {
@@ -133,9 +122,12 @@ async function replyGuildInfo(ix, guildId) {
   if (!res.ok) {
     return ix.editReply({ content: 'No se pudo cargar el gremio en la API de Albion.', embeds: [], components: [] });
   }
-  const allianceText = await allianceLabel(res.data);
-  const embed = buildGuildInfoEmbed(res.data, allianceText);
-  return ix.editReply({ content: null, embeds: [embed], components: [guildInfoCopyRow(res.data)] });
+  const [allianceTag, topPlayers] = await Promise.all([
+    resolveAllianceTag(res.data),
+    fetchTopPlayers(guildId),
+  ]);
+  const embed = buildGuildInfoEmbed(res.data, allianceTag, topPlayers);
+  return ix.editReply({ content: null, embeds: [embed], components: [] });
 }
 
 function gid(discordGuildId) {
@@ -694,8 +686,18 @@ const commands = [
   },
 ];
 
+function getMemoryStats() {
+  return {
+    pendingPick: pendingPick.size,
+    pendingGuildInfo: pendingGuildInfo.size,
+    pendingRegistroAdd: pendingRegistroAdd.size,
+    pendingAlliancePick: pendingAlliancePick.size,
+  };
+}
+
 module.exports = {
   id: 'registro',
+  getMemoryStats,
   commands,
   onGuildRemove(guildId, { getDb }) {
     purgeRegistro(getDb, guildId);
@@ -708,15 +710,6 @@ module.exports = {
     const names = ['registrarse', 'registro_manual', 'informacion_gremio', 'configurar_registro'];
     if (ix.isChatInputCommand() && names.includes(ix.commandName)) {
       await commands.find((x) => x.data.name === ix.commandName).run(ix, ctx);
-      return true;
-    }
-
-    if (ix.isButton() && ix.customId.startsWith('registro:copy:')) {
-      const id = ix.customId.slice('registro:copy:'.length);
-      await ix.reply({
-        content: `📋 **Copiar ID**\n\`\`\`\n${id}\n\`\`\`\nSelecciona el bloque de arriba y cópialo (Ctrl+C / mantén pulsado en móvil).`,
-        ephemeral: true,
-      });
       return true;
     }
 
