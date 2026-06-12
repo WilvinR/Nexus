@@ -7,6 +7,7 @@ const {
   Partials,
   Events,
   ActivityType,
+  Options,
 } = require('discord.js');
 
 const logs = require('./logs');
@@ -23,8 +24,11 @@ const { moduleForInteraction, isModuleEnabled } = require('./modules');
 const commandSync = require('./commandSync');
 const { logError, logSystem } = require('./adminRoutes');
 const { startRamMonitor } = require('./ramMonitor');
+const memoryDiagnostics = require('./memoryDiagnostics');
+const killImages = require('./killImages');
 const { logCommand, ensureGuildMeta, startStatsScheduler } = require('./stats');
 const { buildInviteUrl } = require('./invite');
+
 const modulos = [require('./registro'), kill, moderacion, eventos, sanciones, battle, bal, utilidad, mercado];
 commandSync.init(modulos, logs);
 
@@ -266,6 +270,7 @@ function purgeGuild(guildId) {
   if (logs.onGuildRemove) logs.onGuildRemove(guildId, ctx());
 }
 
+// ==================== CLIENTE OPTIMIZADO ====================
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -277,6 +282,29 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
   ],
   partials: [Partials.GuildMember, Partials.Message, Partials.Channel, Partials.Reaction],
+
+  // === OPTIMIZACIÓN DE RAM (estable) ===
+  makeCache: Options.cacheWithLimits({
+    MessageManager: 50,
+    GuildMemberManager: 300,
+    GuildEmojiManager: 50,
+    GuildBanManager: 50,
+    GuildInviteManager: 50,
+    GuildScheduledEventManager: 50,
+    ReactionManager: 50,
+    ThreadManager: 50,
+    UserManager: 300,
+    PresenceManager: 0,
+    VoiceStateManager: 100,
+    ...Options.DefaultMakeCacheSettings,
+  }),
+  sweepers: {
+    ...Options.DefaultSweeperSettings,
+    messages: {
+      interval: 300,
+      lifetime: 600,
+    },
+  },
 });
 
 client.once(Events.ClientReady, (c) => {
@@ -300,6 +328,11 @@ client.once(Events.ClientReady, (c) => {
       if (ownerIds.length) log.info(`BOT_OWNER_ID: ${ownerIds.length} id(s) configurado(s)`);
       else log.warn('BOT_OWNER_ID no está en .env / Discloud — el panel admin no reconocerá al dueño');
       startStatsScheduler(getDb, client, log);
+      for (const m of modulos) {
+        if (m.getMemoryStats) memoryDiagnostics.registerProvider(m.id, () => m.getMemoryStats());
+      }
+      memoryDiagnostics.registerProvider('killImages', () => killImages.getMemoryStats());
+      memoryDiagnostics.registerProvider('api', () => api.getMemoryStats());
       startRamMonitor(client, getDb, log);
       for (const g of client.guilds.cache.values()) {
         ensureGuildMeta(getDb, g.id, {

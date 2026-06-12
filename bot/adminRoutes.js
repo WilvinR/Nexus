@@ -68,6 +68,15 @@ function resolveGuildName(client, getDb, guildId) {
   return null;
 }
 
+function parseLogMeta(raw) {
+  if (!raw) return {};
+  try {
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {
+    return {};
+  }
+}
+
 function mapLogRow(client, getDb, r) {
   const guildId = r.guild_id || null;
   const guildName = resolveGuildName(client, getDb, guildId);
@@ -78,7 +87,7 @@ function mapLogRow(client, getDb, r) {
     guildId,
     guildName,
     userId: r.user_id,
-    meta: r.meta_json,
+    meta: parseLogMeta(r.meta_json),
     createdAt: r.created_at,
   };
 }
@@ -109,6 +118,9 @@ function registerAdminRoutes(app, { client, getDb, log, sessionAuth }) {
     let users = 0;
     if (guilds) for (const g of guilds.values()) users += g.memberCount || 0;
 
+    const { collectSnapshot } = require('./memoryDiagnostics');
+    const memoryDetail = collectSnapshot(client, getDb);
+
     res.json({
       ok: true,
       online: client.isReady(),
@@ -117,11 +129,17 @@ function registerAdminRoutes(app, { client, getDb, log, sessionAuth }) {
       users,
       uptime: Math.floor(process.uptime()),
       memoryMb: Math.round(mem.rss / 1024 / 1024),
+      memoryDetail,
       cpuLoad: os.loadavg()[0],
       version: process.env.npm_package_version || '1.0.0',
       updatedAt: new Date().toISOString(),
       stats: getGlobalStats(getDb),
     });
+  });
+
+  app.get('/api/admin/memory', sessionAuth, ownerAuth, (req, res) => {
+    const { collectSnapshot } = require('./memoryDiagnostics');
+    res.json({ ok: true, snapshot: collectSnapshot(client, getDb) });
   });
 
   app.get('/api/admin/stats/charts', sessionAuth, ownerAuth, (req, res) => {

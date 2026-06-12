@@ -581,8 +581,13 @@ async function buildKillNotificationImages(killData, entityConfig) {
   };
 }
 
+function getMemoryStats() {
+  return { imageCache: IMAGE_CACHE.size, imageCacheMax: IMAGE_CACHE_MAX };
+}
+
 module.exports = {
   buildKillNotificationImages,
   formatNumber,
   getItemPrice,
+  getMemoryStats,
 };

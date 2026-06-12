@@ -1051,8 +1051,19 @@ const commands = [
   },
 ];
 
+function getMemoryStats() {
+  return {
+    activeEvents: cache.size,
+    timers: timers.size,
+    pending: pending.size,
+    pendingRolePick: pendingRolePick.size,
+    imageUploadWait: imageUploadWait.size,
+  };
+}
+
 module.exports = {
   id: 'eventos',
+  getMemoryStats,
   commands,
   parseRoles,
   parseTimeUtc,

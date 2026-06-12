@@ -539,8 +539,25 @@ const commands = [
   },
 ];
 
+function getMemoryStats() {
+  const itemsCount = itemsCache
+    ? Array.isArray(itemsCache)
+      ? itemsCache.length
+      : typeof itemsCache === 'object'
+        ? Object.keys(itemsCache).length
+        : 0
+    : 0;
+  return {
+    pending: pending.size,
+    itemsLoaded: !!itemsCache,
+    itemsCount,
+    itemsAgeMin: itemsCacheAt ? Math.round((Date.now() - itemsCacheAt) / 60_000) : null,
+  };
+}
+
 module.exports = {
   id: 'mercado',
+  getMemoryStats,
   commands,
 
   async handleInteraction(ix) {

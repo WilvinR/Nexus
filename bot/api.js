@@ -583,4 +583,8 @@ function stop() {
   if (server) server.close();
 }
 
-module.exports = { start, stop };
+function getMemoryStats() {
+  return { oauthGuildCache: userGuildCache.size };
+}
+
+module.exports = { start, stop, getMemoryStats };

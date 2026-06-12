@@ -47,6 +47,71 @@ function cmdLabel(name) {
   return `/${n}`;
 }
 
+function renderMemoryDiagnostics(detail) {
+  if (!detail?.memory) return '';
+  const m = detail.memory;
+  const d = detail.discord || {};
+  const db = detail.database || {};
+  const caches = detail.caches || {};
+  const suspects = detail.suspects || [];
+
+  const suspectHtml = suspects.length
+    ? `<ul class="memory-suspects">${suspects
+        .map(
+          (s) =>
+            `<li class="memory-suspect severity-${esc(s.severity)}"><strong>${esc(s.label)}</strong></li>`,
+        )
+        .join('')}</ul>`
+    : '<p class="modal-meta">Sin sospechosos claros — revisa RSS vs Heap abajo.</p>';
+
+  const cacheRows = [
+    ['Imágenes kill', caches.killImages ? `${caches.killImages.imageCache}/${caches.killImages.imageCacheMax}` : '—'],
+    ['Mercado (ítems)', caches.mercado?.itemsLoaded ? `${caches.mercado.itemsCount} cargados` : 'no cargado'],
+    ['Eventos activos', caches.eventos?.activeEvents ?? '—'],
+    ['OAuth caché API', caches.api?.oauthGuildCache ?? '—'],
+    ['Kill dedupe', caches.kill?.recentEvents ?? '—'],
+  ];
+
+  return statSection(
+    'Diagnóstico de RAM',
+    'Desglose en tiempo real. La causa más habitual es la caché de miembros de Discord (intent GuildMembers).',
+    [
+      statCard('RSS total', `${m.rssMb} MB`, 'Memoria total del proceso'),
+      statCard('Heap JS', `${m.heapMb} MB`, 'Objetos JavaScript'),
+      statCard('Nativa / Ext', `${m.externalMb} MB`, 'Canvas, buffers, librerías nativas'),
+      statCard('Miembros en caché', (d.membersCached ?? 0).toLocaleString('es-ES'), 'Principal sospechoso si es alto'),
+      statCard('Canales caché', d.channels ?? '—', 'Canales cargados en Discord.js'),
+      statCard('Killboard activos', db.killEntities ?? '—', 'Entidades monitoreadas en DB'),
+    ].join('') +
+      `<div class="memory-detail-block">
+        <h4 class="memory-detail-title">Causas probables</h4>
+        ${suspectHtml}
+        <h4 class="memory-detail-title">Cachés del bot</h4>
+        <table class="memory-table"><tbody>${cacheRows
+          .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(String(v))}</td></tr>`)
+          .join('')}</tbody></table>
+      </div>`,
+  );
+}
+
+function formatSyslogMeta(meta) {
+  if (!meta || typeof meta !== 'object' || !meta.suspects) return '';
+  const lines = [];
+  if (meta.memory) {
+    lines.push(
+      `RSS ${meta.memory.rssMb} MB · Heap ${meta.memory.heapMb} · Ext ${meta.memory.externalMb} · AB ${meta.memory.arrayBuffersMb}`,
+    );
+  }
+  if (meta.discord?.membersCached != null) {
+    lines.push(`Discord: ${meta.discord.membersCached} miembros en caché, ${meta.discord.channels} canales`);
+  }
+  if (meta.suspects?.length) {
+    lines.push(`Causas: ${meta.suspects.map((s) => s.label).join(' · ')}`);
+  }
+  if (!lines.length) return '';
+  return `<div class="syslog-meta">${lines.map((l) => `<div>${esc(l)}</div>`).join('')}</div>`;
+}
+
 function statCard(label, value, hint) {
   return `<div class="stat-card">
     <span class="stat-card-label">${esc(label)}</span>
@@ -240,6 +305,7 @@ async function loadOverview() {
         statCard('Sugerencias recibidas', s.suggestions, 'Enviadas con /sugerencia'),
       ].join(''),
     ) +
+    (d.memoryDetail ? renderMemoryDiagnostics(d.memoryDetail) : '') +
     `<p class="stat-updated">Actualizado: ${fmtDateTime(d.updatedAt)}</p>`;
 }
 
@@ -644,7 +710,10 @@ async function loadSysLogs() {
             (l) => `<div class="syslog-row level-${esc(l.level)}">
               <span class="syslog-time">${new Date(l.createdAt).toLocaleString('es')}</span>
               <span class="syslog-lv">[${esc(l.level)}]</span>
-              <span class="syslog-msg">${esc(l.message)}</span>
+              <div class="syslog-body">
+                <span class="syslog-msg">${esc(l.message)}</span>
+                ${formatSyslogMeta(l.meta)}
+              </div>
               ${l.guildId ? `<span class="syslog-guild">${esc(l.guildName || 'Servidor desconocido')}</span>` : ''}
             </div>`,
           )
