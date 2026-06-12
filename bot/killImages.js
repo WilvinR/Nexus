@@ -52,6 +52,7 @@ function cacheGetItem(key) {
 }
 
 function cacheSetItem(key, img) {
+  if (!img) return;
   if (IMAGE_CACHE.size >= IMAGE_CACHE_MAX) {
     const oldest = IMAGE_CACHE.keys().next().value;
     IMAGE_CACHE.delete(oldest);
@@ -59,11 +60,28 @@ function cacheSetItem(key, img) {
   IMAGE_CACHE.set(key, img);
 }
 
-/** Libera los buffers PNG tras enviar el mensaje a Discord. */
+function destroyCanvas(canvas) {
+  if (!canvas) return;
+  try {
+    canvas.width = 0;
+    canvas.height = 0;
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Vacía iconos de ítems decodificados en RAM (principal consumidor tras muchas kills). */
+function clearItemImageCache() {
+  IMAGE_CACHE.clear();
+}
+
+/** Libera PNG y caché de iconos tras enviar a Discord. */
 function releaseKillBuffers(built) {
-  if (!built || built.skip) return;
-  built.mainBuffer = null;
-  built.statsBuffer = null;
+  if (built && !built.skip) {
+    built.mainBuffer = null;
+    built.statsBuffer = null;
+  }
+  clearItemImageCache();
 }
 
 async function mapWithConcurrency(items, fn, concurrency) {
@@ -107,7 +125,6 @@ async function loadItemImage(item) {
       }
     }
   }
-  cacheSetItem(key, null);
   return null;
 }
 
@@ -499,6 +516,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
   }
 
   const mainBuffer = canvas.toBuffer('image/png');
+  destroyCanvas(canvas);
 
   let statsBuffer = null;
   if (alliedParticipants.length > 0) {
@@ -571,6 +589,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
     }
 
     statsBuffer = statsCanvas.toBuffer('image/png');
+    destroyCanvas(statsCanvas);
   }
 
   const content = isKill
@@ -595,6 +614,7 @@ function getMemoryStats() {
 module.exports = {
   buildKillNotificationImages,
   releaseKillBuffers,
+  clearItemImageCache,
   formatNumber,
   getItemPrice,
   getMemoryStats,
