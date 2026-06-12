@@ -54,20 +54,7 @@ function renderMemoryDiagnostics(detail) {
   const db = detail.database || {};
   const caches = detail.caches || {};
   const suspects = detail.suspects || [];
-
   const nativeEst = Math.max(0, m.rssMb - m.heapMb);
-  const rssHeapHtml = `<div class="memory-rss-heap">
-    <table class="memory-table memory-table-compare">
-      <tbody>
-        <tr><th>RSS total</th><td><strong>${m.rssMb} MB</strong> — memoria real del proceso en el servidor</td></tr>
-        <tr><th>Heap (JS)</th><td><strong>${m.heapMb} MB</strong> — objetos JavaScript</td></tr>
-        <tr><th>Nativo (est.)</th><td><strong>${nativeEst} MB</strong> — RSS − Heap (canvas, iconos kill, Discord nativo)</td></tr>
-        <tr><th>External</th><td>${m.externalMb} MB</td></tr>
-        <tr><th>ArrayBuffers</th><td>${m.arrayBuffersMb} MB</td></tr>
-      </tbody>
-    </table>
-    <p class="modal-meta">Si RSS sube con kills y Heap no tanto, el peso está en memoria nativa (imágenes/canvas), no en objetos JS.</p>
-  </div>`;
 
   const suspectHtml = suspects.length
     ? `<ul class="memory-suspects">${suspects
@@ -76,36 +63,55 @@ function renderMemoryDiagnostics(detail) {
             `<li class="memory-suspect severity-${esc(s.severity)}"><strong>${esc(s.label)}</strong></li>`,
         )
         .join('')}</ul>`
-    : '<p class="modal-meta">Sin sospechosos automáticos — usa la tabla RSS vs Heap y los cachés.</p>';
+    : '<p class="modal-meta memory-note">Sin alertas automáticas por ahora.</p>';
 
-  const cacheRows = [
-    ['Imágenes kill', caches.killImages ? `${caches.killImages.imageCache}/${caches.killImages.imageCacheMax}` : '—'],
-    ['Mercado (ítems)', caches.mercado?.itemsLoaded ? `${caches.mercado.itemsCount} cargados` : 'no cargado'],
-    ['Eventos activos', caches.eventos?.activeEvents ?? '—'],
-    ['OAuth caché API', caches.api?.oauthGuildCache ?? '—'],
-    ['Kill dedupe', caches.kill?.recentEvents ?? '—'],
-  ];
+  const memoryCards = [
+    statCard('RSS total', `${m.rssMb} MB`, 'Memoria real del proceso'),
+    statCard('Heap (JS)', `${m.heapMb} MB`, 'Objetos JavaScript'),
+    statCard('Nativo (est.)', `${nativeEst} MB`, 'RSS − Heap · canvas e iconos'),
+    statCard('External', `${m.externalMb} MB`, 'Addons nativos de Node'),
+    statCard('ArrayBuffers', `${m.arrayBuffersMb} MB`, 'Buffers binarios'),
+  ].join('');
 
-  return statSection(
-    'Diagnóstico de RAM',
-    'Desglose en tiempo real. La causa más habitual es la caché de miembros de Discord (intent GuildMembers).',
-    [
-      statCard('Miembros en caché', (d.membersCached ?? 0).toLocaleString('es-ES'), 'Discord.js — suele ser el mayor consumo base'),
-      statCard('Canales caché', d.channels ?? '—', 'Canales cargados en Discord.js'),
-      statCard('Killboard activos', db.killEntities ?? '—', 'Entidades monitoreadas en DB'),
-      statCard('Gucci suscriptores', db.gucciSubscribers ?? '—', 'Servidores con feed Gucci Kills'),
-    ].join('') +
-      `<div class="memory-detail-block">
-        <h4 class="memory-detail-title">RSS vs Heap</h4>
-        ${rssHeapHtml}
-        <h4 class="memory-detail-title">Causas probables</h4>
-        ${suspectHtml}
-        <h4 class="memory-detail-title">Cachés del bot</h4>
-        <table class="memory-table"><tbody>${cacheRows
-          .map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(String(v))}</td></tr>`)
-          .join('')}</tbody></table>
-      </div>`,
-  );
+  const discordCards = [
+    statCard('Miembros en caché', (d.membersCached ?? 0).toLocaleString('es-ES'), 'Discord.js'),
+    statCard('Canales en caché', d.channels ?? '—', 'Discord.js'),
+    statCard('Killboard activos', db.killEntities ?? '—', 'En base de datos'),
+    statCard('Gucci suscriptores', db.gucciSubscribers ?? '—', 'Feeds activos'),
+  ].join('');
+
+  const cacheCards = [
+    statCard(
+      'Imágenes kill',
+      caches.killImages ? `${caches.killImages.imageCache}/${caches.killImages.imageCacheMax}` : '—',
+      'Iconos de ítems en RAM',
+    ),
+    statCard(
+      'Mercado',
+      caches.mercado?.itemsLoaded ? `${caches.mercado.itemsCount} ítems` : 'No cargado',
+      'Catálogo /precio',
+    ),
+    statCard('Eventos activos', caches.eventos?.activeEvents ?? '—', 'Timers en memoria'),
+    statCard('OAuth API', caches.api?.oauthGuildCache ?? '—', 'Sesiones dashboard'),
+    statCard('Kill dedupe', caches.kill?.recentEvents ?? '—', 'Anti-duplicados'),
+  ].join('');
+
+  return `<section class="stat-section memory-diagnostics">
+    <h3 class="stat-section-title">Diagnóstico de RAM</h3>
+    <p class="stat-section-desc">Uso de memoria en tiempo real. Si RSS sube con kills y Heap casi no, el peso está en canvas/iconos (memoria nativa).</p>
+
+    <h4 class="memory-subtitle">Memoria del proceso</h4>
+    <div class="stat-grid stat-grid-tight">${memoryCards}</div>
+
+    <h4 class="memory-subtitle">Discord y módulos</h4>
+    <div class="stat-grid stat-grid-tight">${discordCards}</div>
+
+    <h4 class="memory-subtitle">Cachés del bot</h4>
+    <div class="stat-grid stat-grid-tight">${cacheCards}</div>
+
+    <h4 class="memory-subtitle">Causas probables</h4>
+    ${suspectHtml}
+  </section>`;
 }
 
 function formatSyslogMeta(meta) {

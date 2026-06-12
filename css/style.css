@@ -2381,38 +2381,45 @@ footer {
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
-.memory-detail-block {
-  margin-top: 16px;
+.memory-diagnostics {
   text-align: left;
 }
 
-.memory-rss-heap {
-  margin-bottom: 8px;
-}
-
-.memory-table-compare td strong {
-  color: var(--accent-bright);
-}
-
-.memory-table-compare tr:first-child th,
-.memory-table-compare tr:first-child td {
-  padding-top: 4px;
-}
-
-.memory-detail-title {
-  margin: 14px 0 8px;
+.memory-subtitle {
+  margin: 20px 0 10px;
   font-family: 'Rajdhani', sans-serif;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
   text-transform: uppercase;
-  color: var(--heading-section);
+  color: var(--steel);
+  padding-left: 10px;
+  border-left: 2px solid var(--accent);
+}
+
+.memory-diagnostics .memory-subtitle:first-of-type {
+  margin-top: 4px;
+}
+
+.stat-grid-tight {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.memory-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.88rem;
 }
 
 .memory-suspects {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 720px;
 }
 
 .memory-suspect {
@@ -2431,25 +2438,6 @@ footer {
 
 .memory-suspect.severity-medium {
   border-color: rgba(228, 184, 74, 0.45);
-}
-
-.memory-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.memory-table th,
-.memory-table td {
-  text-align: left;
-  padding: 6px 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.memory-table th {
-  color: var(--muted);
-  font-weight: 600;
-  width: 42%;
 }
 
 .albion-loader {
