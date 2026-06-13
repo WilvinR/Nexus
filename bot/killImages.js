@@ -32,32 +32,38 @@ function font(size, bold = false) {
   return bold ? `bold ${size}px ${fam}` : `${size}px ${fam}`;
 }
 
-const IMAGE_CACHE = new Map();
-const IMAGE_CACHE_MAX = 600;
+/** Caché efímero: solo durante un render, nunca entre kills. */
+let buildCache = null;
+
+function beginBuildCache() {
+  buildCache = new Map();
+}
+
+function endBuildCache() {
+  if (buildCache) {
+    buildCache.clear();
+    buildCache = null;
+  }
+}
+
+function cacheGetItem(key) {
+  return buildCache?.get(key);
+}
+
+function cacheSetItem(key, img) {
+  if (!img || !buildCache) return;
+  buildCache.set(key, img);
+}
+
 const IMAGE_FETCH_CONCURRENCY = Math.max(2, parseInt(process.env.KILL_IMAGE_CONCURRENCY || '4', 10) || 4);
 const IMAGE_FETCH_RETRIES = Math.max(1, parseInt(process.env.KILL_IMAGE_RETRIES || '3', 10) || 3);
 const IMAGE_FETCH_TIMEOUT_MS = Math.max(8000, parseInt(process.env.KILL_IMAGE_TIMEOUT_MS || '18000', 10) || 18000);
+/** Máximo tamaño de dibujo (EQUIP_ITEM_SIZE); evita decodificar 217px en RAM nativa. */
+const ITEM_RENDER_SIZE = 150;
 
 function itemCacheKey(item) {
   const quality = Math.max(1, Math.min(5, item?.Quality || 1));
   return `${item.Type}|${quality}`;
-}
-
-function cacheGetItem(key) {
-  if (!IMAGE_CACHE.has(key)) return undefined;
-  const img = IMAGE_CACHE.get(key);
-  IMAGE_CACHE.delete(key);
-  IMAGE_CACHE.set(key, img);
-  return img;
-}
-
-function cacheSetItem(key, img) {
-  if (!img) return;
-  if (IMAGE_CACHE.size >= IMAGE_CACHE_MAX) {
-    const oldest = IMAGE_CACHE.keys().next().value;
-    IMAGE_CACHE.delete(oldest);
-  }
-  IMAGE_CACHE.set(key, img);
 }
 
 function destroyCanvas(canvas) {
@@ -70,12 +76,12 @@ function destroyCanvas(canvas) {
   }
 }
 
-/** Vacía iconos de ítems decodificados en RAM (principal consumidor tras muchas kills). */
+/** Vacía iconos decodificados (solo activos durante render). */
 function clearItemImageCache() {
-  IMAGE_CACHE.clear();
+  endBuildCache();
 }
 
-/** Libera PNG y caché de iconos tras enviar a Discord. */
+/** Libera PNG e iconos tras enviar a Discord. */
 function releaseKillBuffers(built) {
   if (built && !built.skip) {
     built.mainBuffer = null;
@@ -101,7 +107,7 @@ async function mapWithConcurrency(items, fn, concurrency) {
 
 async function fetchItemImageBuffer(item) {
   const quality = Math.max(1, Math.min(5, item.Quality || 1));
-  const url = `https://render.albiononline.com/v1/item/${item.Type}?quality=${quality}&size=217`;
+  const url = `https://render.albiononline.com/v1/item/${item.Type}?quality=${quality}&size=${ITEM_RENDER_SIZE}`;
   const r = await fetch(url, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
   if (r.status !== 200) throw new Error(`HTTP ${r.status}`);
   return Buffer.from(await r.arrayBuffer());
@@ -308,6 +314,8 @@ async function getInvItemPrice(item) {
  * @returns {{ skip: true } | { skip: false, isKill, content, mainBuffer, statsBuffer, eventId, eventTime }}
  */
 async function buildKillNotificationImages(killData, entityConfig) {
+  beginBuildCache();
+  try {
   const killer = killData.Killer || {};
   const victim = killData.Victim || {};
   const killerId = killer.Id != null ? String(killer.Id) : null;
@@ -605,10 +613,13 @@ async function buildKillNotificationImages(killData, entityConfig) {
     eventId: killData.EventId,
     eventTime: tsDate,
   };
+  } finally {
+    endBuildCache();
+  }
 }
 
 function getMemoryStats() {
-  return { imageCache: IMAGE_CACHE.size, imageCacheMax: IMAGE_CACHE_MAX };
+  return { imageCache: buildCache?.size ?? 0, imageCacheMax: 0 };
 }
 
 module.exports = {

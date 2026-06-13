@@ -49,6 +49,16 @@ function drawHeaders(ctx, headers, xs, y) {
   headers.forEach((h, i) => ctx.fillText(h, xs[i], y));
 }
 
+function destroyCanvas(canvas) {
+  if (!canvas) return;
+  try {
+    canvas.width = 0;
+    canvas.height = 0;
+  } catch {
+    /* ignore */
+  }
+}
+
 function buildGuildBattleImage(battle, monitoredGuildId) {
   const guilds = {};
   const monitoredPlayers = [];
@@ -124,7 +134,9 @@ function buildGuildBattleImage(battle, monitoredGuildId) {
     sorted.length > 2 ? `${names.join(' vs ')} + ${sorted.length - 2} más` : names.join(' vs ');
 
   const battleTime = new Date(String(battle.endTime).replace('Z', '+00:00'));
-  return { buffer: canvas.toBuffer('image/png'), title: `${title} - ${totalPlayers} Players`, battleTime };
+  const buffer = canvas.toBuffer('image/png');
+  destroyCanvas(canvas);
+  return { buffer, title: `${title} - ${totalPlayers} Players`, battleTime };
 }
 
 function buildAllianceBattleImage(battle, monitoredAllianceId, allianceTag) {
@@ -241,7 +253,9 @@ function buildAllianceBattleImage(battle, monitoredAllianceId, allianceTag) {
   const title =
     sorted.length > 2 ? `${names.join(' vs ')} + ${sorted.length - 2} más` : names.join(' vs ');
   const battleTime = new Date(String(battle.endTime).replace('Z', '+00:00'));
-  return { buffer: canvas.toBuffer('image/png'), title: `${title} - ${totalPlayers} Players`, battleTime };
+  const buffer = canvas.toBuffer('image/png');
+  destroyCanvas(canvas);
+  return { buffer, title: `${title} - ${totalPlayers} Players`, battleTime };
 }
 
 module.exports = { buildGuildBattleImage, buildAllianceBattleImage };
