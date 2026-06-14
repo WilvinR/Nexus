@@ -38,11 +38,284 @@ function loginRedirect() {
 function showLogin() {
   document.getElementById('view-login').classList.remove('hidden');
   document.getElementById('view-dash').classList.add('hidden');
+  document.getElementById('dash-header-nav')?.classList.add('hidden');
+  document.getElementById('dash-nav-right')?.classList.add('hidden');
 }
 
 function showDash() {
   document.getElementById('view-login').classList.add('hidden');
   document.getElementById('view-dash').classList.remove('hidden');
+  const nav = document.getElementById('site-nav-dash');
+  if (nav) nav.classList.add('has-badge');
+  document.getElementById('dash-header-nav')?.classList.remove('hidden');
+  document.getElementById('dash-nav-right')?.classList.remove('hidden');
+}
+
+let currentNav = 'dashboard';
+
+function guildById(id) {
+  return guildsData.find((x) => x.id === id);
+}
+
+function setNavMode(mode) {
+  document.querySelectorAll('.dash-nav-guild-only').forEach((el) => {
+    el.classList.toggle('hidden', mode !== 'guild');
+  });
+}
+
+function setActiveNav(nav) {
+  currentNav = nav;
+  document.querySelectorAll('.dash-header-nav-link').forEach((b) => {
+    b.classList.toggle('active', b.dataset.nav === nav);
+  });
+}
+
+function hideAllDashViews() {
+  document.getElementById('view-dashboard')?.classList.add('hidden');
+  document.getElementById('guild-home')?.classList.add('hidden');
+  document.getElementById('guild-modules')?.classList.add('hidden');
+  document.getElementById('view-help')?.classList.add('hidden');
+  document.getElementById('view-search')?.classList.add('hidden');
+}
+
+function setGuildAvatarEl(el, g) {
+  if (!el || !g) return;
+  el.replaceChildren();
+  const url = guildIconUrl(g);
+  if (url) {
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = g.name;
+    el.appendChild(img);
+  } else {
+    const ph = document.createElement('span');
+    ph.className = 'guild-avatar-ph';
+    ph.textContent = guildInitial(g.name);
+    el.appendChild(ph);
+  }
+}
+
+function setGuildModulesHeader(g) {
+  setGuildAvatarEl(document.getElementById('guild-modules-avatar'), g);
+  document.getElementById('guild-modules-name').textContent = g.name;
+}
+
+function updatePageHeader(nav) {
+  const titleEl = document.getElementById('dash-page-title');
+  const sectionLabel = document.getElementById('dash-section-label');
+  const hint = document.getElementById('dash-hint');
+  const g = currentGuildId ? guildById(currentGuildId) : null;
+
+  if (nav === 'dashboard') {
+    titleEl.innerHTML = 'DASH<span>BOARD</span>';
+    sectionLabel.textContent = '// DASHBOARD';
+    hint.classList.remove('hidden');
+  } else if (nav === 'home') {
+    titleEl.textContent = g?.name || 'Servidor';
+    sectionLabel.textContent = '// INICIO';
+    hint.classList.add('hidden');
+  } else if (nav === 'modules') {
+    titleEl.textContent = g?.name || 'Servidor';
+    sectionLabel.textContent = '// MÓDULOS';
+    hint.classList.add('hidden');
+  } else if (nav === 'help') {
+    titleEl.innerHTML = 'AY<span>UDA</span>';
+    sectionLabel.textContent = '// AYUDA';
+    hint.classList.add('hidden');
+  } else if (nav === 'search') {
+    titleEl.innerHTML = 'INFORMACIÓN <span>ALBION</span>';
+    sectionLabel.textContent = '// ALBION';
+    hint.classList.add('hidden');
+  }
+}
+
+function switchNav(nav) {
+  if (nav === 'home' || nav === 'modules') {
+    if (!currentGuildId) {
+      switchNav('dashboard');
+      return;
+    }
+    setNavMode('guild');
+  } else if (nav === 'dashboard') {
+    setNavMode('global');
+    currentGuildId = null;
+  } else {
+    setNavMode(currentGuildId ? 'guild' : 'global');
+  }
+
+  hideAllDashViews();
+  setActiveNav(nav);
+  updatePageHeader(nav);
+
+  if (nav === 'dashboard') {
+    document.getElementById('view-dashboard').classList.remove('hidden');
+  } else if (nav === 'home') {
+    document.getElementById('guild-home').classList.remove('hidden');
+    loadGuildHome();
+  } else if (nav === 'modules') {
+    document.getElementById('guild-modules').classList.remove('hidden');
+    const g = guildById(currentGuildId);
+    if (g) {
+      setGuildModulesHeader(g);
+      renderModules(document.getElementById('mod-list'), g.id, g.modules || []);
+    }
+  } else if (nav === 'help') {
+    document.getElementById('view-help').classList.remove('hidden');
+    loadHelpVideos();
+  } else if (nav === 'search') {
+    document.getElementById('view-search').classList.remove('hidden');
+    document.getElementById('albion-search-q')?.focus();
+  }
+}
+
+  try {
+    const r = await api(path);
+    if (!r.ok) return null;
+    return r.json();
+  } catch {
+    return null;
+  }
+}
+
+function fmtRelativeTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'ahora';
+  if (mins < 60) return `hace ${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `hace ${hrs}h`;
+  return fmtDate(iso);
+}
+
+async function loadGuildHome() {
+  const box = document.getElementById('guild-home');
+  const g = guildById(currentGuildId);
+  if (!box || !g) return;
+
+  box.innerHTML = '<p class="dash-empty">Cargando resumen…</p>';
+
+  const gid = encodeURIComponent(g.id);
+  const [pub, channelsRes, voiceRes, rolesRes, killsRes, battlesRes, eventosRes, sancionesRes] =
+    await Promise.all([
+      safeJsonFetch('/api/public'),
+      safeJsonFetch(`/api/guilds/${gid}/channels`),
+      safeJsonFetch(`/api/guilds/${gid}/voice-channels`),
+      safeJsonFetch(`/api/guilds/${gid}/roles`),
+      safeJsonFetch(`/api/guilds/${gid}/kill/entities`),
+      safeJsonFetch(`/api/guilds/${gid}/battle/tracking`),
+      safeJsonFetch(`/api/guilds/${gid}/eventos`),
+      safeJsonFetch(`/api/guilds/${gid}/sanciones`),
+    ]);
+
+  const textCh = channelsRes?.channels || [];
+  const voiceCh = voiceRes?.channels || [];
+  const roleList = rolesRes?.roles || [];
+  const killEntities = killsRes?.entities || [];
+  const battleTracks = battlesRes?.tracks || [];
+  const eventList = (eventosRes?.events || [])
+    .slice()
+    .sort((a, b) => String(a.time).localeCompare(String(b.time)))
+    .slice(0, 5);
+  const sancLog = (sancionesRes?.log || []).slice(0, 5);
+  const modules = g.modules || [];
+  const enabledCount = modules.filter((m) => m.enabled).length;
+  const botOnline = pub?.ready ?? pub?.bot ?? false;
+
+  const iconUrl = guildIconUrl(g);
+  const iconHtml = iconUrl
+    ? `<img src="${escapeHtml(iconUrl)}" alt="" width="48" height="48">`
+    : `<span class="guild-avatar-ph">${escapeHtml(guildInitial(g.name))}</span>`;
+
+  const statsHtml = `
+    <div class="dash-stat-card"><span class="dash-stat-icon">📢</span><span class="dash-stat-label">Canales texto</span><span class="dash-stat-value">${textCh.length}</span></div>
+    <div class="dash-stat-card"><span class="dash-stat-icon">🔊</span><span class="dash-stat-label">Canales voz</span><span class="dash-stat-value">${voiceCh.length}</span></div>
+    <div class="dash-stat-card"><span class="dash-stat-icon">🏷️</span><span class="dash-stat-label">Roles</span><span class="dash-stat-value">${roleList.length}</span></div>
+    <div class="dash-stat-card"><span class="dash-stat-icon">💀</span><span class="dash-stat-label">Killboard</span><span class="dash-stat-value">${killEntities.length}</span></div>
+    <div class="dash-stat-card"><span class="dash-stat-icon">⚔️</span><span class="dash-stat-label">Batallas</span><span class="dash-stat-value">${battleTracks.length}</span></div>
+    <div class="dash-stat-card"><span class="dash-stat-icon">🧩</span><span class="dash-stat-label">Módulos activos</span><span class="dash-stat-value">${enabledCount}/${modules.length}</span></div>`;
+
+  const modMini = modules
+    .map((m) => {
+      const emoji = MODULE_EMOJI[m.id] || '⚙️';
+      return `<div class="dash-mod-mini ${m.enabled ? 'on' : 'off'}"><span>${emoji}</span><span>${escapeHtml(m.name)}</span><span class="dash-mod-mini-state">${m.enabled ? 'Activo' : 'Off'}</span></div>`;
+    })
+    .join('');
+
+  const activityItems = [];
+  for (const ev of eventList) {
+    activityItems.push({
+      icon: '🏹',
+      cls: 'join',
+      title: ev.name || 'Evento',
+      desc: `${ev.location || 'Sin ubicación'} · ${ev.time || ''}`,
+      time: ev.time,
+    });
+  }
+  for (const s of sancLog) {
+    activityItems.push({
+      icon: '⚖️',
+      cls: 'alert',
+      title: `Sanción — ${s.username || s.userId}`,
+      desc: `${s.action || s.tipo || 'Registro'}${s.reason ? `: ${s.reason}` : ''}`,
+      time: s.createdAt,
+    });
+  }
+
+  const activityHtml = activityItems.length
+    ? activityItems
+        .slice(0, 6)
+        .map(
+          (a) => `<div class="dash-activity-item">
+        <div class="dash-act-icon ${a.cls}">${a.icon}</div>
+        <div class="dash-act-body"><div class="dash-act-title">${escapeHtml(a.title)}</div><div class="dash-act-desc">${escapeHtml(a.desc)}</div></div>
+        <div class="dash-act-time">${escapeHtml(fmtRelativeTime(a.time) || fmtDate(a.time))}</div>
+      </div>`,
+        )
+        .join('')
+    : '<p class="modal-meta">Sin actividad reciente.</p>';
+
+  const rolesHtml = roleList.length
+    ? roleList
+        .slice(0, 12)
+        .map((r) => {
+          const color = r.color ? `#${Number(r.color).toString(16).padStart(6, '0')}` : '#64748b';
+          return `<span class="dash-role-pill"><i style="background:${color}"></i>${escapeHtml(r.name)}</span>`;
+        })
+        .join('') + (roleList.length > 12 ? `<span class="dash-role-pill dash-role-more">+${roleList.length - 12} más</span>` : '')
+    : '<p class="modal-meta">Sin roles visibles.</p>';
+
+  box.innerHTML = `
+    <div class="dash-home-header">
+      <div class="dash-server-chip">${iconHtml}<div><strong>${escapeHtml(g.name)}</strong><span class="modal-meta">ID: ${escapeHtml(g.id)}</span></div></div>
+    </div>
+    <div class="dash-bot-bar">
+      <span class="dash-bot-status"><span class="dash-status-dot ${botOnline ? 'online' : ''}"></span>Nexus Bot · ${botOnline ? 'ONLINE' : 'OFFLINE'}</span>
+      <span class="dash-bot-divider"></span>
+      <span class="modal-meta">Servidor Albion: <strong>Américas</strong></span>
+      <button type="button" class="btn btn-accent btn-sm dash-bot-cta" data-go-modules>Ir a módulos</button>
+    </div>
+    <div class="dash-stats-grid">${statsHtml}</div>
+    <div class="dash-two-col">
+      <div class="dash-section-card">
+        <div class="dash-card-head"><h3>Módulos</h3><button type="button" class="link-btn" data-go-modules>Gestionar →</button></div>
+        <div class="dash-mod-mini-grid">${modMini}</div>
+      </div>
+      <div class="dash-section-card">
+        <div class="dash-card-head"><h3>Actividad reciente</h3></div>
+        <div class="dash-activity-list">${activityHtml}</div>
+      </div>
+    </div>
+    <div class="dash-section-card">
+      <div class="dash-card-head"><h3>Roles del servidor</h3></div>
+      <div class="dash-roles-list">${rolesHtml}</div>
+    </div>`;
+
+  box.querySelectorAll('[data-go-modules]').forEach((btn) => {
+    btn.addEventListener('click', () => switchNav('modules'));
+  });
 }
 
 function guildIconUrl(g) {
@@ -53,46 +326,6 @@ function guildIconUrl(g) {
 function guildInitial(name) {
   const t = (name || '?').trim();
   return (t[0] || '?').toUpperCase();
-}
-
-function setGuildHeader(g) {
-  const avatar = document.getElementById('guild-config-avatar');
-  avatar.replaceChildren();
-  document.getElementById('guild-config-name').textContent = g.name;
-  const url = guildIconUrl(g);
-  if (url) {
-    const img = document.createElement('img');
-    img.src = url;
-    img.alt = g.name;
-    avatar.appendChild(img);
-  } else {
-    const ph = document.createElement('span');
-    ph.className = 'guild-avatar-ph';
-    ph.textContent = guildInitial(g.name);
-    avatar.appendChild(ph);
-  }
-}
-
-function showGuildGrid() {
-  switchDashView('servers');
-  document.getElementById('guild-grid').classList.remove('hidden');
-  document.getElementById('guild-config').classList.add('hidden');
-}
-
-function switchDashView(view) {
-  document.querySelectorAll('.dash-subnav-btn').forEach((b) => {
-    b.classList.toggle('active', b.dataset.view === view);
-  });
-  document.getElementById('view-servers').classList.toggle('hidden', view !== 'servers');
-  document.getElementById('view-help').classList.toggle('hidden', view !== 'help');
-  document.getElementById('view-search').classList.toggle('hidden', view !== 'search');
-  document.getElementById('dash-hint').classList.toggle('hidden', view !== 'servers');
-
-  const titles = { servers: 'TUS SERVIDORES', help: 'AYUDA', search: 'INFORMACIÓN ALBION' };
-  document.getElementById('dash-page-title').textContent = titles[view] || 'DASHBOARD';
-
-  if (view === 'help') loadHelpVideos();
-  if (view === 'search') document.getElementById('albion-search-q')?.focus();
 }
 
 async function loadHelpVideos() {
@@ -454,15 +687,11 @@ async function runAlbionSearch() {
 }
 
 function openGuild(g) {
-  document.getElementById('view-servers').classList.remove('hidden');
-  document.getElementById('guild-grid').classList.add('hidden');
-  document.getElementById('guild-config').classList.remove('hidden');
-  document.getElementById('dash-page-title').textContent = 'CONFIGURAR';
-  document.getElementById('dash-hint').classList.add('hidden');
   currentGuildId = g.id;
   channelsCacheReset();
-  setGuildHeader(g);
+  setGuildModulesHeader(g);
   renderModules(document.getElementById('mod-list'), g.id, g.modules || []);
+  switchNav('home');
 }
 
 function channelsCacheReset() {
@@ -549,12 +778,13 @@ async function loadDashboard() {
     userLine += ' · 👑 Dueño del bot';
   }
   document.getElementById('user-label').innerHTML = userLine;
+  const navUser = document.getElementById('nav-user-label');
+  if (navUser) navUser.textContent = me.user.username;
   showDash();
-  switchDashView('servers');
+  switchNav('dashboard');
 
   const grid = document.getElementById('guild-grid');
   grid.innerHTML = '<p class="dash-empty">Cargando servidores…</p>';
-  document.getElementById('guild-config').classList.add('hidden');
 
   const dashRes = await api('/api/me/dashboard');
   if (!dashRes.ok) {
@@ -568,9 +798,9 @@ async function loadDashboard() {
   let hint = data.isOwner
     ? '👑 Dueño del bot: ves todos los servidores con Nexus.'
     : data.ownersOnly
-      ? 'Toca un servidor donde seas dueño de Discord (con Nexus instalado).'
-      : 'Toca un servidor que administres.';
-  hint += ' Registro, Killboard, Battle, Logs, Sanciones, Eventos y Utilidad tienen Configurar.';
+      ? 'Elige un servidor donde seas dueño de Discord (con Nexus instalado).'
+      : 'Elige un servidor que administres.';
+  hint += ' Desde Inicio verás el resumen; en Módulos activas y configuras cada uno.';
   if (me.isOwner) {
     hint += ' · <a href="admin.html" class="admin-link">Panel owner</a>';
   }
@@ -606,16 +836,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-login').addEventListener('click', loginRedirect);
   document.getElementById('btn-logout').addEventListener('click', () => {
     NexusAuth.clearToken();
+    currentGuildId = null;
     showLogin();
   });
-  document.getElementById('btn-back').addEventListener('click', showGuildGrid);
 
-  document.querySelectorAll('.dash-subnav-btn').forEach((btn) => {
+  document.querySelectorAll('.dash-header-nav-link').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const view = btn.dataset.view;
-      if (!view) return;
-      if (view === 'servers') showGuildGrid();
-      switchDashView(view);
+      const nav = btn.dataset.nav;
+      if (!nav) return;
+      switchNav(nav);
     });
   });
 

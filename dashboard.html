@@ -11,8 +11,21 @@
   <div class="orb orb1"></div>
   <div class="orb orb2"></div>
 
-  <nav class="site-nav">
-    <a href="/" class="logo"><img src="img/nexus-logo.png" alt="" width="36" height="36">NEX<span>US</span></a>
+  <nav class="site-nav site-nav-dash" id="site-nav-dash" aria-label="Navegación principal">
+    <div class="dash-nav-left">
+      <a href="/" class="logo logo-compact"><img src="img/nexus-logo.png" alt="" width="32" height="32">NEX<span>US</span></a>
+      <div class="dash-header-nav hidden" id="dash-header-nav" role="navigation">
+        <button type="button" class="dash-header-nav-link active" data-nav="dashboard">Dashboard</button>
+        <button type="button" class="dash-header-nav-link dash-nav-guild-only hidden" data-nav="home">Inicio</button>
+        <button type="button" class="dash-header-nav-link dash-nav-guild-only hidden" data-nav="modules">Módulos</button>
+        <button type="button" class="dash-header-nav-link" data-nav="search">Información Albion</button>
+        <button type="button" class="dash-header-nav-link" data-nav="help">Ayuda</button>
+      </div>
+    </div>
+    <div class="dash-nav-right hidden" id="dash-nav-right">
+      <span class="dash-nav-user" id="nav-user-label"></span>
+      <button type="button" class="btn btn-accent btn-sm" id="btn-logout">Cerrar sesión</button>
+    </div>
   </nav>
 
   <main class="dash-wrap" id="app">
@@ -27,36 +40,30 @@
     <section id="view-dash" class="dash-panel hidden">
       <div class="dash-head">
         <div>
-          <div class="section-label">// CONFIGURACIÓN</div>
-          <h1 class="dash-title" id="dash-page-title">TUS SERVIDORES</h1>
+          <div class="section-label" id="dash-section-label">// DASHBOARD</div>
+          <h1 class="dash-title" id="dash-page-title">DASH<span>BOARD</span></h1>
           <p class="dash-user owner-setup" id="user-label"></p>
         </div>
-        <button type="button" class="btn btn-accent" id="btn-logout">Cerrar sesión</button>
       </div>
 
-      <nav class="dash-subnav" id="dash-subnav" aria-label="Secciones del dashboard">
-        <button type="button" class="dash-subnav-btn active" data-view="servers">Servidores</button>
-        <button type="button" class="dash-subnav-btn" data-view="help">Ayuda</button>
-        <button type="button" class="dash-subnav-btn" data-view="search">Información Albion</button>
-      </nav>
+      <p class="dash-hint" id="dash-hint">Elige un servidor para ver su resumen y configurar módulos.</p>
 
-      <p class="dash-hint" id="dash-hint">Activa o desactiva módulos por servidor.</p>
-
-      <div id="view-servers">
+      <div id="view-dashboard">
         <div id="guild-grid" class="guild-grid"></div>
-
-        <section id="guild-config" class="guild-config hidden">
-          <button type="button" class="btn-back" id="btn-back" aria-label="Volver a servidores">← Servidores</button>
-          <header class="guild-config-head">
-            <div id="guild-config-avatar" class="guild-avatar"></div>
-            <div>
-              <h2 class="guild-config-title" id="guild-config-name"></h2>
-              <p class="guild-config-sub">Módulos de este servidor</p>
-            </div>
-          </header>
-          <div id="mod-list" class="dash-mod-grid"></div>
-        </section>
       </div>
+
+      <section id="guild-home" class="guild-home hidden"></section>
+
+      <section id="guild-modules" class="guild-modules hidden">
+        <header class="guild-config-head">
+          <div id="guild-modules-avatar" class="guild-avatar"></div>
+          <div>
+            <h2 class="guild-config-title" id="guild-modules-name"></h2>
+            <p class="guild-config-sub">Activa módulos y abre Configurar para ajustar cada uno.</p>
+          </div>
+        </header>
+        <div id="mod-list" class="dash-mod-grid"></div>
+      </section>
 
       <section id="view-help" class="dash-extra-view hidden">
         <div class="modal-section">
