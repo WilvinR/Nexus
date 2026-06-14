@@ -12,19 +12,19 @@
   <div class="orb orb2"></div>
 
   <nav class="site-nav site-nav-dash" id="site-nav-dash" aria-label="Navegación principal">
-    <div class="dash-nav-left">
+    <div class="dash-nav-top">
       <a href="/" class="logo logo-compact"><img src="img/nexus-logo.png" alt="" width="32" height="32">NEX<span>US</span></a>
-      <div class="dash-header-nav hidden" id="dash-header-nav" role="navigation">
-        <button type="button" class="dash-header-nav-link active" data-nav="dashboard">Dashboard</button>
-        <button type="button" class="dash-header-nav-link dash-nav-guild-only hidden" data-nav="home">Inicio</button>
-        <button type="button" class="dash-header-nav-link dash-nav-guild-only hidden" data-nav="modules">Módulos</button>
-        <button type="button" class="dash-header-nav-link" data-nav="search">Información Albion</button>
-        <button type="button" class="dash-header-nav-link" data-nav="help">Ayuda</button>
+      <div class="dash-nav-right hidden" id="dash-nav-right">
+        <span class="dash-nav-user" id="nav-user-label"></span>
+        <button type="button" class="btn btn-accent btn-sm" id="btn-logout"><span class="dash-logout-long">Cerrar sesión</span><span class="dash-logout-short">Salir</span></button>
       </div>
     </div>
-    <div class="dash-nav-right hidden" id="dash-nav-right">
-      <span class="dash-nav-user" id="nav-user-label"></span>
-      <button type="button" class="btn btn-accent btn-sm" id="btn-logout">Cerrar sesión</button>
+    <div class="dash-header-nav hidden" id="dash-header-nav" role="navigation">
+      <button type="button" class="dash-header-nav-link active" data-nav="dashboard">Dashboard</button>
+      <button type="button" class="dash-header-nav-link dash-nav-guild-only hidden" data-nav="home">Inicio</button>
+      <button type="button" class="dash-header-nav-link dash-nav-guild-only hidden" data-nav="modules">Módulos</button>
+      <button type="button" class="dash-header-nav-link" data-nav="search"><span class="dash-nav-label-long">Información Albion</span><span class="dash-nav-label-short">Albion</span></button>
+      <button type="button" class="dash-header-nav-link" data-nav="help">Ayuda</button>
     </div>
   </nav>
 
