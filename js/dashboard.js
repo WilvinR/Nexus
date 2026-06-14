@@ -19,6 +19,7 @@ const MODULE_EMOJI = {
 
 function api(path, opts = {}) {
   return fetch(`${NEXUS_API.replace(/\/$/, '')}${path}`, {
+    cache: 'no-store',
     ...opts,
     headers: NexusAuth.authHeaders(opts.headers || {}),
   });
@@ -208,6 +209,13 @@ function fmtSancionActivity(s) {
   return `${s.action || 'Registro'}${s.reason ? `: ${s.reason}` : ''}`;
 }
 
+function pickMemberStats(...sources) {
+  for (const s of sources) {
+    if (s && typeof s.humans === 'number') return s;
+  }
+  return null;
+}
+
 async function loadGuildHome() {
   const box = document.getElementById('guild-home');
   const g = guildById(currentGuildId);
@@ -216,12 +224,13 @@ async function loadGuildHome() {
   box.innerHTML = '<p class="dash-empty">Cargando resumen…</p>';
 
   const gid = encodeURIComponent(g.id);
-  const [pub, channelsRes, voiceRes, rolesRes, eventosRes, sancionesRes] =
+  const [pub, channelsRes, voiceRes, rolesRes, memberStatsRes, eventosRes, sancionesRes] =
     await Promise.all([
       safeJsonFetch('/api/public'),
       safeJsonFetch(`/api/guilds/${gid}/channels`),
       safeJsonFetch(`/api/guilds/${gid}/voice-channels`),
       safeJsonFetch(`/api/guilds/${gid}/roles`),
+      safeJsonFetch(`/api/guilds/${gid}/member-stats`),
       safeJsonFetch(`/api/guilds/${gid}/eventos`),
       safeJsonFetch(`/api/guilds/${gid}/sanciones`),
     ]);
@@ -229,7 +238,19 @@ async function loadGuildHome() {
   const textCh = channelsRes?.channels || [];
   const voiceCh = voiceRes?.channels || [];
   const roleList = rolesRes?.roles || [];
-  const memberStats = rolesRes?.memberStats ?? g.memberStats;
+  let memberStats = pickMemberStats(
+    memberStatsRes,
+    rolesRes?.memberStats,
+    channelsRes?.memberStats,
+    g.memberStats,
+  );
+  if (!memberStats) {
+    const dash = await safeJsonFetch('/api/me/dashboard');
+    if (dash?.guilds?.length) {
+      guildsData = dash.guilds;
+      memberStats = pickMemberStats(guildById(currentGuildId)?.memberStats);
+    }
+  }
   const memberHumans = memberStats?.humans ?? '—';
   const memberBots = memberStats?.bots ?? '—';
   const eventList = (eventosRes?.events || [])

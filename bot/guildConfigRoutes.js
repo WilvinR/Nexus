@@ -173,7 +173,8 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
   app.get('/api/guilds/:guildId/channels', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
-    res.json({ ok: true, channels: listTextChannels(ctx.guild) });
+    const memberStats = await resolveMemberStats(ctx.guild);
+    res.json({ ok: true, channels: listTextChannels(ctx.guild), memberStats });
   });
 
   app.get('/api/guilds/:guildId/roles', sessionAuth, async (req, res) => {

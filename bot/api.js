@@ -168,6 +168,9 @@ function start(client, log, getDb, hooks = {}) {
     }
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Api-Secret, Authorization');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+    if (req.path.startsWith('/api/')) {
+      res.setHeader('Cache-Control', 'no-store');
+    }
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
