@@ -244,12 +244,15 @@ async function loadGuildHome() {
     <div class="dash-stat-card"><span class="dash-stat-icon">⚔️</span><span class="dash-stat-label">Batallas</span><span class="dash-stat-value">${battleTracks.length}</span></div>
     <div class="dash-stat-card"><span class="dash-stat-icon">🧩</span><span class="dash-stat-label">Módulos activos</span><span class="dash-stat-value">${enabledCount}/${modules.length}</span></div>`;
 
-  const modMini = modules
-    .map((m) => {
-      const emoji = MODULE_EMOJI[m.id] || '⚙️';
-      return `<div class="dash-mod-mini ${m.enabled ? 'on' : 'off'}"><span>${emoji}</span><span>${escapeHtml(m.name)}</span><span class="dash-mod-mini-state">${m.enabled ? 'Activo' : 'Off'}</span></div>`;
-    })
-    .join('');
+  const activeModules = modules.filter((m) => m.enabled);
+  const modMini = activeModules.length
+    ? activeModules
+        .map((m) => {
+          const emoji = MODULE_EMOJI[m.id] || '⚙️';
+          return `<div class="dash-mod-mini on"><span>${emoji}</span><span>${escapeHtml(m.name)}</span><span class="dash-mod-mini-state">Activo</span></div>`;
+        })
+        .join('')
+    : '<p class="modal-meta">Ningún módulo activo. Ve a Módulos para activar uno.</p>';
 
   const activityItems = [];
   for (const ev of eventList) {
