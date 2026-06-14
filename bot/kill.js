@@ -11,7 +11,7 @@ const {
   AttachmentBuilder,
   MessageFlags,
 } = require('discord.js');
-const { buildKillNotificationImages, releaseKillBuffers, clearItemImageCache } = require('./killImages');
+const { buildKillNotificationImages, releaseKillBuffers } = require('./killImages');
 
 const API = 'https://gameinfo.albiononline.com/api/gameinfo';
 const PREFIX = 'kill';
@@ -397,8 +397,6 @@ async function runMonitor(getDb, client, log) {
       log.warn(`Kill monitor ${entity.name}: ${e.message}`);
     }
   }
-
-  clearItemImageCache();
 
   log.info(`\n  ✅  CICLO KILLBOARD COMPLETADO\n${sep}`);
 }

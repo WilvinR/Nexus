@@ -32,33 +32,7 @@ function font(size, bold = false) {
   return bold ? `bold ${size}px ${fam}` : `${size}px ${fam}`;
 }
 
-/** Caché efímero: solo durante un render, nunca entre kills. */
-let buildCache = null;
-
-function beginBuildCache() {
-  buildCache = new Map();
-}
-
-function endBuildCache() {
-  if (buildCache) {
-    buildCache.clear();
-    buildCache = null;
-  }
-}
-
-function cacheGetItem(key) {
-  return buildCache?.get(key);
-}
-
-function cacheSetItem(key, img) {
-  if (!img || !buildCache) return;
-  buildCache.set(key, img);
-}
-
-const IMAGE_FETCH_CONCURRENCY = Math.max(2, parseInt(process.env.KILL_IMAGE_CONCURRENCY || '4', 10) || 4);
-const IMAGE_FETCH_RETRIES = Math.max(1, parseInt(process.env.KILL_IMAGE_RETRIES || '3', 10) || 3);
-const IMAGE_FETCH_TIMEOUT_MS = Math.max(8000, parseInt(process.env.KILL_IMAGE_TIMEOUT_MS || '18000', 10) || 18000);
-/** Máximo tamaño de dibujo (EQUIP_ITEM_SIZE); evita decodificar 217px en RAM nativa. */
+/** Máximo tamaño de dibujo (EQUIP_ITEM_SIZE). */
 const ITEM_RENDER_SIZE = 150;
 
 function itemCacheKey(item) {
@@ -76,19 +50,16 @@ function destroyCanvas(canvas) {
   }
 }
 
-/** Vacía iconos decodificados (solo activos durante render). */
-function clearItemImageCache() {
-  endBuildCache();
+/** Libera buffers PNG tras enviar a Discord. */
+function releaseKillBuffers(built) {
+  if (!built || built.skip) return;
+  built.mainBuffer = null;
+  built.statsBuffer = null;
 }
 
-/** Libera PNG e iconos tras enviar a Discord. */
-function releaseKillBuffers(built) {
-  if (built && !built.skip) {
-    built.mainBuffer = null;
-    built.statsBuffer = null;
-  }
-  clearItemImageCache();
-}
+const IMAGE_FETCH_CONCURRENCY = Math.max(2, parseInt(process.env.KILL_IMAGE_CONCURRENCY || '4', 10) || 4);
+const IMAGE_FETCH_RETRIES = Math.max(1, parseInt(process.env.KILL_IMAGE_RETRIES || '3', 10) || 3);
+const IMAGE_FETCH_TIMEOUT_MS = Math.max(8000, parseInt(process.env.KILL_IMAGE_TIMEOUT_MS || '18000', 10) || 18000);
 
 async function mapWithConcurrency(items, fn, concurrency) {
   if (!items.length) return [];
@@ -113,17 +84,16 @@ async function fetchItemImageBuffer(item) {
   return Buffer.from(await r.arrayBuffer());
 }
 
-async function loadItemImage(item) {
+async function loadItemImage(itemCache, item) {
   if (!item?.Type) return null;
   const key = itemCacheKey(item);
-  const cached = cacheGetItem(key);
-  if (cached !== undefined) return cached;
+  if (itemCache.has(key)) return itemCache.get(key);
 
   for (let attempt = 0; attempt < IMAGE_FETCH_RETRIES; attempt++) {
     try {
       const buf = await fetchItemImageBuffer(item);
       const img = await loadImage(buf);
-      cacheSetItem(key, img);
+      itemCache.set(key, img);
       return img;
     } catch {
       if (attempt + 1 < IMAGE_FETCH_RETRIES) {
@@ -139,7 +109,7 @@ function collectEquipmentItems(equipment) {
   return Object.values(eq).filter((it) => it && it.Type);
 }
 
-async function preloadItemImages(items) {
+async function preloadItemImages(itemCache, items) {
   const unique = new Map();
   for (const item of items) {
     if (!item?.Type) continue;
@@ -147,13 +117,12 @@ async function preloadItemImages(items) {
     if (!unique.has(key)) unique.set(key, item);
   }
   const list = [...unique.values()];
-  await mapWithConcurrency(list, (item) => loadItemImage(item), IMAGE_FETCH_CONCURRENCY);
+  await mapWithConcurrency(list, (item) => loadItemImage(itemCache, item), IMAGE_FETCH_CONCURRENCY);
 }
 
-function getCachedItemImage(item) {
+function getCachedItemImage(itemCache, item) {
   if (!item?.Type) return null;
-  const img = cacheGetItem(itemCacheKey(item));
-  return img || null;
+  return itemCache.get(itemCacheKey(item)) || null;
 }
 
 async function getItemPrice(itemId) {
@@ -245,18 +214,18 @@ function parseTimestamp(ts) {
   }
 }
 
-function pasteItem(ctx, x, y, item, size) {
+function pasteItem(ctx, itemCache, x, y, item, size) {
   if (!item) return;
   const type = item.Type || '';
   if (!type || type.toUpperCase().includes('TRASH')) return;
-  const img = getCachedItemImage(item);
+  const img = getCachedItemImage(itemCache, item);
   if (!img) return;
   ctx.drawImage(img, x, y, size, size);
 }
 
-function pasteItemGhost(ctx, x, y, item, size) {
+function pasteItemGhost(ctx, itemCache, x, y, item, size) {
   if (!item) return;
-  const img = getCachedItemImage(item);
+  const img = getCachedItemImage(itemCache, item);
   if (!img) return;
   ctx.save();
   ctx.globalAlpha = 0.25;
@@ -264,7 +233,7 @@ function pasteItemGhost(ctx, x, y, item, size) {
   ctx.restore();
 }
 
-function drawEquipmentGrid(ctx, startX, startY, equipment, isKiller, spacing, itemSize) {
+function drawEquipmentGrid(ctx, itemCache, startX, startY, equipment, isKiller, spacing, itemSize) {
   const positions = {
     Bag: [0, 0],
     Head: [1, 0],
@@ -287,15 +256,15 @@ function drawEquipmentGrid(ctx, startX, startY, equipment, isKiller, spacing, it
     const x = startX + col * spacing;
     const y = startY + row * spacing;
     if (slot === 'OffHand' && is2h) {
-      pasteItemGhost(ctx, x, y, mainHand, itemSize);
+      pasteItemGhost(ctx, itemCache, x, y, mainHand, itemSize);
     } else {
-      pasteItem(ctx, x, y, eq[slot], itemSize);
+      pasteItem(ctx, itemCache, x, y, eq[slot], itemSize);
     }
   }
 }
 
-function drawInvItem(ctx, x, y, item, size) {
-  const img = getCachedItemImage(item);
+function drawInvItem(ctx, itemCache, x, y, item, size) {
+  const img = getCachedItemImage(itemCache, item);
   if (img) ctx.drawImage(img, x, y, size, size);
 }
 
@@ -314,8 +283,7 @@ async function getInvItemPrice(item) {
  * @returns {{ skip: true } | { skip: false, isKill, content, mainBuffer, statsBuffer, eventId, eventTime }}
  */
 async function buildKillNotificationImages(killData, entityConfig) {
-  beginBuildCache();
-  try {
+  const itemCache = new Map();
   const killer = killData.Killer || {};
   const victim = killData.Victim || {};
   const killerId = killer.Id != null ? String(killer.Id) : null;
@@ -413,7 +381,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
     .filter((it) => it && it.Type)
     .map((it) => getItemPrice(it.Type));
 
-  await preloadItemImages(imageItems);
+  await preloadItemImages(itemCache, imageItems);
   const prices = priceTasks.length ? await Promise.all(priceTasks) : [];
   const totalEquipmentValue = prices.reduce((s, p) => s + (p > 0 ? p : 0), 0);
   const fame = killData.TotalVictimKillFame || 0;
@@ -469,8 +437,8 @@ async function buildKillNotificationImages(killData, entityConfig) {
   drawCentered(ctx, CENTER_X, invStartPreview - 60, timestampDisplay, fontTs, TEXT);
 
   const equipY = infoY + 100;
-  drawEquipmentGrid(ctx, LEFT_PANEL_X, equipY, killer.Equipment, true, EQUIP_SPACING, EQUIP_ITEM_SIZE);
-  drawEquipmentGrid(ctx, RIGHT_PANEL_X, equipY, victim.Equipment, false, EQUIP_SPACING, EQUIP_ITEM_SIZE);
+  drawEquipmentGrid(ctx, itemCache, LEFT_PANEL_X, equipY, killer.Equipment, true, EQUIP_SPACING, EQUIP_ITEM_SIZE);
+  drawEquipmentGrid(ctx, itemCache, RIGHT_PANEL_X, equipY, victim.Equipment, false, EQUIP_SPACING, EQUIP_ITEM_SIZE);
 
   const invStartY = equipY + 4 * EQUIP_SPACING + 40;
   ctx.strokeStyle = LINE;
@@ -503,7 +471,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
       const item = inventory[idx];
       const col = idx % INV_ITEMS_PER_ROW;
       const row = Math.floor(idx / INV_ITEMS_PER_ROW);
-      drawInvItem(ctx, invX + col * INV_SPACING, invY + row * INV_SPACING, item, INV_ITEM_SIZE);
+      drawInvItem(ctx, itemCache, invX + col * INV_SPACING, invY + row * INV_SPACING, item, INV_ITEM_SIZE);
     }
 
     const invResults = await mapWithConcurrency(
@@ -558,7 +526,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
 
     for (const p of sorted) {
       if (p.weapon?.Type) {
-        const wImg = getCachedItemImage(p.weapon);
+        const wImg = getCachedItemImage(itemCache, p.weapon);
         if (wImg) {
           const iconY = rowY + (rowHeight - WEAPON_ICON_SIZE) / 2;
           sctx.drawImage(wImg, 20, iconY, WEAPON_ICON_SIZE, WEAPON_ICON_SIZE);
@@ -613,19 +581,15 @@ async function buildKillNotificationImages(killData, entityConfig) {
     eventId: killData.EventId,
     eventTime: tsDate,
   };
-  } finally {
-    endBuildCache();
-  }
 }
 
 function getMemoryStats() {
-  return { imageCache: buildCache?.size ?? 0, imageCacheMax: 0 };
+  return { imageCache: 0, imageCacheMax: 0 };
 }
 
 module.exports = {
   buildKillNotificationImages,
   releaseKillBuffers,
-  clearItemImageCache,
   formatNumber,
   getItemPrice,
   getMemoryStats,
