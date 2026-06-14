@@ -75,8 +75,8 @@ function applyTokenFromUrl(onError) {
   return null;
 }
 
-function startLogin(apiBase) {
-  const back = loginBackUrl();
+function startLogin(apiBase, redirectTo) {
+  const back = redirectTo || loginBackUrl();
   window.location.href = `${apiBase.replace(/\/$/, '')}/api/auth/login?redirect=${encodeURIComponent(back)}`;
 }
 

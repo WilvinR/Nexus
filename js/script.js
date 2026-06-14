@@ -83,13 +83,30 @@ function initModuleCards() {
   window.addEventListener('scroll', reveal, { passive: true });
 }
 
+async function goToDashboard() {
+  const dashUrl = new URL('dashboard.html', location.href).href;
+  const token = NexusAuth.getToken();
+  if (!token) {
+    NexusAuth.startLogin(NEXUS_API, dashUrl);
+    return;
+  }
+  try {
+    const res = await fetch(apiUrl('/api/me'), { headers: NexusAuth.authHeaders() });
+    if (res.ok) {
+      window.location.href = 'dashboard.html';
+      return;
+    }
+  } catch {
+    window.location.href = 'dashboard.html';
+    return;
+  }
+  NexusAuth.clearToken();
+  NexusAuth.startLogin(NEXUS_API, dashUrl);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   loadPublicStats();
   initModuleCards();
-  document.getElementById('btn-dashboard')?.addEventListener('click', () => {
-    window.location.href = 'dashboard.html';
-  });
-  document.getElementById('btn-dashboard-2')?.addEventListener('click', () => {
-    window.location.href = 'dashboard.html';
-  });
+  document.getElementById('btn-dashboard')?.addEventListener('click', goToDashboard);
+  document.getElementById('btn-dashboard-2')?.addEventListener('click', goToDashboard);
 });

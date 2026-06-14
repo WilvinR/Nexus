@@ -32,14 +32,20 @@ function showAuthError(msg) {
 }
 
 function loginRedirect() {
-  NexusAuth.startLogin(NEXUS_API);
+  const dashUrl = new URL('dashboard.html', location.href).href;
+  NexusAuth.startLogin(NEXUS_API, dashUrl);
 }
 
-function showLogin() {
+function showLoginPending() {
   document.getElementById('view-login').classList.remove('hidden');
   document.getElementById('view-dash').classList.add('hidden');
   document.getElementById('dash-header-nav')?.classList.add('hidden');
   document.getElementById('dash-nav-right')?.classList.add('hidden');
+}
+
+function beginAuth() {
+  showLoginPending();
+  loginRedirect();
 }
 
 function showDash() {
@@ -769,7 +775,7 @@ async function loadDashboard() {
   const meRes = await api('/api/me');
   if (!meRes.ok) {
     NexusAuth.clearToken();
-    showLogin();
+    beginAuth();
     return;
   }
   const me = await meRes.json();
@@ -832,12 +838,10 @@ document.addEventListener('DOMContentLoaded', () => {
   window.__dashResetCaches = () => {
     /* dashboard-modules.js resetea al abrir modal */
   };
-  NexusAuth.applyTokenFromUrl(showAuthError);
-  document.getElementById('btn-login').addEventListener('click', loginRedirect);
   document.getElementById('btn-logout').addEventListener('click', () => {
     NexusAuth.clearToken();
     currentGuildId = null;
-    showLogin();
+    beginAuth();
   });
 
   document.querySelectorAll('.dash-header-nav-link').forEach((btn) => {
@@ -866,10 +870,15 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') runAlbionSearch();
   });
 
-  if (NexusAuth.getToken()) loadDashboard();
-  else showLogin();
+  const authFromUrl = NexusAuth.applyTokenFromUrl(showAuthError);
+  if (authFromUrl === 'token' || NexusAuth.getToken()) {
+    loadDashboard();
+  } else {
+    beginAuth();
+  }
 
   window.addEventListener('pageshow', (e) => {
     if (e.persisted && NexusAuth.getToken()) loadDashboard();
+    else if (e.persisted && !NexusAuth.getToken()) beginAuth();
   });
 });
