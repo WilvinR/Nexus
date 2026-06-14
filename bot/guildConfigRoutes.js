@@ -61,6 +61,75 @@ function listRoles(guild) {
     .sort((a, b) => b.name.localeCompare(a.name));
 }
 
+const memberStatsCache = new Map();
+const MEMBER_STATS_TTL_MS = 120_000;
+
+async function resolveMemberStats(guild) {
+  const key = guild.id;
+  const hit = memberStatsCache.get(key);
+  if (hit && Date.now() - hit.at < MEMBER_STATS_TTL_MS) return hit.data;
+
+  const total = guild.memberCount;
+  try {
+    if (guild.members.cache.size < total) {
+      await guild.members.fetch();
+    }
+  } catch {
+    /* caché parcial */
+  }
+
+  const cached = [...guild.members.cache.values()];
+  const bots = cached.filter((m) => m.user.bot).length;
+  const complete = cached.length >= total;
+  const data = {
+    total,
+    bots,
+    humans: complete ? cached.filter((m) => !m.user.bot).length : Math.max(0, total - bots),
+    approximate: !complete,
+  };
+  memberStatsCache.set(key, { at: Date.now(), data });
+  return data;
+}
+
+/** Nombre visible; consulta Discord si el miembro no está en caché del bot. */
+async function resolveDiscordLabel(guild, userId, cache = new Map()) {
+  if (!userId) return null;
+  const key = String(userId);
+  if (cache.has(key)) return cache.get(key);
+
+  const cached = guild.members.cache.get(key);
+  if (cached) {
+    const label =
+      cached.displayName ||
+      cached.user?.globalName ||
+      cached.user?.username ||
+      cached.user?.tag ||
+      key;
+    cache.set(key, label);
+    return label;
+  }
+
+  let label = key;
+  try {
+    const member = await guild.members.fetch(key);
+    label =
+      member.displayName ||
+      member.user?.globalName ||
+      member.user?.username ||
+      member.user?.tag ||
+      key;
+  } catch {
+    try {
+      const user = await guild.client.users.fetch(key);
+      label = user.globalName || user.username || user.tag || key;
+    } catch {
+      /* ID sin acceso */
+    }
+  }
+  cache.set(key, label);
+  return label;
+}
+
 function canBotManageRole(guild, roleId) {
   const role = guild.roles.cache.get(roleId);
   const me = guild.members.me;
@@ -595,6 +664,18 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     res.json({ ok: true, channels: listVoiceChannels(ctx.guild) });
   });
 
+  app.get('/api/guilds/:guildId/member-stats', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    try {
+      const stats = await resolveMemberStats(ctx.guild);
+      res.json({ ok: true, ...stats });
+    } catch (e) {
+      log.warn(`member-stats ${ctx.guildId}: ${e.message}`);
+      res.status(500).json({ error: 'No se pudieron cargar las estadísticas de miembros' });
+    }
+  });
+
   app.get('/api/guilds/:guildId/members', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
@@ -687,30 +768,30 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     const ctx = await access(req, res);
     if (!ctx) return;
     const cfg = getSancionesConfig(getDb, ctx.guildId);
-    const records = listSancionRecords(getDb, ctx.guildId).map((r) => {
-      const member = ctx.guild.members.cache.get(r.user_id);
-      return {
+    const nameCache = new Map();
+    const records = await Promise.all(
+      listSancionRecords(getDb, ctx.guildId).map(async (r) => ({
         userId: r.user_id,
-        username: member?.user?.tag || member?.displayName || r.user_id,
+        username: await resolveDiscordLabel(ctx.guild, r.user_id, nameCache),
         strikes: r.strikes,
         multas: r.multas,
-      };
-    });
-    const logRows = listSancionLog(getDb, ctx.guildId, 40).map((row) => {
-      const member = ctx.guild.members.cache.get(row.user_id);
-      const mod = row.moderator_id ? ctx.guild.members.cache.get(row.moderator_id) : null;
-      return {
+      })),
+    );
+    const logRows = await Promise.all(
+      listSancionLog(getDb, ctx.guildId, 40).map(async (row) => ({
         id: row.id,
         userId: row.user_id,
-        username: member?.user?.tag || row.user_id,
+        username: await resolveDiscordLabel(ctx.guild, row.user_id, nameCache),
         action: row.action,
         tipo: row.tipo,
         amount: row.amount,
         reason: row.reason,
-        moderator: mod?.user?.tag || row.moderator_id,
+        moderator: row.moderator_id
+          ? await resolveDiscordLabel(ctx.guild, row.moderator_id, nameCache)
+          : null,
         createdAt: row.created_at,
-      };
-    });
+      })),
+    );
     res.json({
       ok: true,
       channelId: cfg.channelId,

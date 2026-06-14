@@ -197,6 +197,17 @@ function fmtRelativeTime(iso) {
   return fmtDate(iso);
 }
 
+function fmtSancionActivity(s) {
+  const tipo = s.tipo || 'sanción';
+  if (s.action === 'apply') {
+    return `Aplicó ${tipo}${s.amount ? ` (${s.amount})` : ''}${s.reason ? `: ${s.reason}` : ''}`;
+  }
+  if (s.action === 'remove') {
+    return `Quitó ${tipo}${s.reason ? `: ${s.reason}` : ''}`;
+  }
+  return `${s.action || 'Registro'}${s.reason ? `: ${s.reason}` : ''}`;
+}
+
 async function loadGuildHome() {
   const box = document.getElementById('guild-home');
   const g = guildById(currentGuildId);
@@ -205,14 +216,13 @@ async function loadGuildHome() {
   box.innerHTML = '<p class="dash-empty">Cargando resumen…</p>';
 
   const gid = encodeURIComponent(g.id);
-  const [pub, channelsRes, voiceRes, rolesRes, killsRes, battlesRes, eventosRes, sancionesRes] =
+  const [pub, channelsRes, voiceRes, rolesRes, memberStatsRes, eventosRes, sancionesRes] =
     await Promise.all([
       safeJsonFetch('/api/public'),
       safeJsonFetch(`/api/guilds/${gid}/channels`),
       safeJsonFetch(`/api/guilds/${gid}/voice-channels`),
       safeJsonFetch(`/api/guilds/${gid}/roles`),
-      safeJsonFetch(`/api/guilds/${gid}/kill/entities`),
-      safeJsonFetch(`/api/guilds/${gid}/battle/tracking`),
+      safeJsonFetch(`/api/guilds/${gid}/member-stats`),
       safeJsonFetch(`/api/guilds/${gid}/eventos`),
       safeJsonFetch(`/api/guilds/${gid}/sanciones`),
     ]);
@@ -220,8 +230,8 @@ async function loadGuildHome() {
   const textCh = channelsRes?.channels || [];
   const voiceCh = voiceRes?.channels || [];
   const roleList = rolesRes?.roles || [];
-  const killEntities = killsRes?.entities || [];
-  const battleTracks = battlesRes?.tracks || [];
+  const memberHumans = memberStatsRes?.humans ?? '—';
+  const memberBots = memberStatsRes?.bots ?? '—';
   const eventList = (eventosRes?.events || [])
     .slice()
     .sort((a, b) => String(a.time).localeCompare(String(b.time)))
@@ -240,8 +250,8 @@ async function loadGuildHome() {
     <div class="dash-stat-card"><span class="dash-stat-icon">📢</span><span class="dash-stat-label">Canales texto</span><span class="dash-stat-value">${textCh.length}</span></div>
     <div class="dash-stat-card"><span class="dash-stat-icon">🔊</span><span class="dash-stat-label">Canales voz</span><span class="dash-stat-value">${voiceCh.length}</span></div>
     <div class="dash-stat-card"><span class="dash-stat-icon">🏷️</span><span class="dash-stat-label">Roles</span><span class="dash-stat-value">${roleList.length}</span></div>
-    <div class="dash-stat-card"><span class="dash-stat-icon">💀</span><span class="dash-stat-label">Killboard</span><span class="dash-stat-value">${killEntities.length}</span></div>
-    <div class="dash-stat-card"><span class="dash-stat-icon">⚔️</span><span class="dash-stat-label">Batallas</span><span class="dash-stat-value">${battleTracks.length}</span></div>
+    <div class="dash-stat-card"><span class="dash-stat-icon">👥</span><span class="dash-stat-label">Miembros sin bots</span><span class="dash-stat-value">${memberHumans}</span></div>
+    <div class="dash-stat-card"><span class="dash-stat-icon">🤖</span><span class="dash-stat-label">Bots total</span><span class="dash-stat-value">${memberBots}</span></div>
     <div class="dash-stat-card"><span class="dash-stat-icon">🧩</span><span class="dash-stat-label">Módulos activos</span><span class="dash-stat-value">${enabledCount}/${modules.length}</span></div>`;
 
   const activeModules = modules.filter((m) => m.enabled);
@@ -269,7 +279,7 @@ async function loadGuildHome() {
       icon: '⚖️',
       cls: 'alert',
       title: `Sanción — ${s.username || s.userId}`,
-      desc: `${s.action || s.tipo || 'Registro'}${s.reason ? `: ${s.reason}` : ''}`,
+      desc: fmtSancionActivity(s),
       time: s.createdAt,
     });
   }
