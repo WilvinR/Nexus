@@ -174,6 +174,7 @@ function switchNav(nav) {
   }
 }
 
+async function safeJsonFetch(path) {
   try {
     const r = await api(path);
     if (!r.ok) return null;
