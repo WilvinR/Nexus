@@ -24,6 +24,7 @@ const {
 } = require('./eventos');
 const { resolveBattleTrackInput, seedBattles } = require('./battle');
 const { GUCCI_MIN_FAME } = require('./kill');
+const { resolveMemberStats } = require('./memberStats');
 
 function gid(id) {
   return String(id);
@@ -59,36 +60,6 @@ function listRoles(guild) {
     .filter((r) => !r.managed && r.id !== guild.id)
     .map((r) => ({ id: r.id, name: r.name, color: r.hexColor }))
     .sort((a, b) => b.name.localeCompare(a.name));
-}
-
-const memberStatsCache = new Map();
-const MEMBER_STATS_TTL_MS = 120_000;
-
-async function resolveMemberStats(guild) {
-  const key = guild.id;
-  const hit = memberStatsCache.get(key);
-  if (hit && Date.now() - hit.at < MEMBER_STATS_TTL_MS) return hit.data;
-
-  const total = guild.memberCount;
-  try {
-    if (guild.members.cache.size < total) {
-      await guild.members.fetch();
-    }
-  } catch {
-    /* caché parcial */
-  }
-
-  const cached = [...guild.members.cache.values()];
-  const bots = cached.filter((m) => m.user.bot).length;
-  const complete = cached.length >= total;
-  const data = {
-    total,
-    bots,
-    humans: complete ? cached.filter((m) => !m.user.bot).length : Math.max(0, total - bots),
-    approximate: !complete,
-  };
-  memberStatsCache.set(key, { at: Date.now(), data });
-  return data;
 }
 
 /** Nombre visible; consulta Discord si el miembro no está en caché del bot. */
@@ -208,7 +179,8 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
   app.get('/api/guilds/:guildId/roles', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
-    res.json({ ok: true, roles: listRoles(ctx.guild) });
+    const memberStats = await resolveMemberStats(ctx.guild);
+    res.json({ ok: true, roles: listRoles(ctx.guild), memberStats });
   });
 
   app.get('/api/guilds/:guildId/emojis', sessionAuth, async (req, res) => {

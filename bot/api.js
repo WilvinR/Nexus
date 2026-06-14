@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { MODULES, getGuildModuleStates, setModuleEnabled } = require('./modules');
 const { registerGuildConfigRoutes } = require('./guildConfigRoutes');
+const { quickMemberStats } = require('./memberStats');
 const { registerAdminRoutes, logSystem, isBotOwner, getBotOwnerIds, parseYoutubeId } = require('./adminRoutes');
 const { buildInviteUrl, getClientId } = require('./invite');
 
@@ -72,6 +73,7 @@ function buildManagedGuildList(client, rawGuilds) {
         icon: g.icon,
         owner: !!g.owner,
         botPresent: true,
+        memberStats: botGuild ? quickMemberStats(botGuild) : null,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -104,6 +106,7 @@ function buildGuildListForUser(client, rawGuilds, userId) {
         owner: true,
         botOwnerAccess: true,
         botPresent: true,
+        memberStats: quickMemberStats(g),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }

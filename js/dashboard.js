@@ -216,13 +216,12 @@ async function loadGuildHome() {
   box.innerHTML = '<p class="dash-empty">Cargando resumen…</p>';
 
   const gid = encodeURIComponent(g.id);
-  const [pub, channelsRes, voiceRes, rolesRes, memberStatsRes, eventosRes, sancionesRes] =
+  const [pub, channelsRes, voiceRes, rolesRes, eventosRes, sancionesRes] =
     await Promise.all([
       safeJsonFetch('/api/public'),
       safeJsonFetch(`/api/guilds/${gid}/channels`),
       safeJsonFetch(`/api/guilds/${gid}/voice-channels`),
       safeJsonFetch(`/api/guilds/${gid}/roles`),
-      safeJsonFetch(`/api/guilds/${gid}/member-stats`),
       safeJsonFetch(`/api/guilds/${gid}/eventos`),
       safeJsonFetch(`/api/guilds/${gid}/sanciones`),
     ]);
@@ -230,8 +229,9 @@ async function loadGuildHome() {
   const textCh = channelsRes?.channels || [];
   const voiceCh = voiceRes?.channels || [];
   const roleList = rolesRes?.roles || [];
-  const memberHumans = memberStatsRes?.humans ?? '—';
-  const memberBots = memberStatsRes?.bots ?? '—';
+  const memberStats = rolesRes?.memberStats ?? g.memberStats;
+  const memberHumans = memberStats?.humans ?? '—';
+  const memberBots = memberStats?.bots ?? '—';
   const eventList = (eventosRes?.events || [])
     .slice()
     .sort((a, b) => String(a.time).localeCompare(String(b.time)))
@@ -250,7 +250,7 @@ async function loadGuildHome() {
     <div class="dash-stat-card"><span class="dash-stat-icon">📢</span><span class="dash-stat-label">Canales texto</span><span class="dash-stat-value">${textCh.length}</span></div>
     <div class="dash-stat-card"><span class="dash-stat-icon">🔊</span><span class="dash-stat-label">Canales voz</span><span class="dash-stat-value">${voiceCh.length}</span></div>
     <div class="dash-stat-card"><span class="dash-stat-icon">🏷️</span><span class="dash-stat-label">Roles</span><span class="dash-stat-value">${roleList.length}</span></div>
-    <div class="dash-stat-card"><span class="dash-stat-icon">👥</span><span class="dash-stat-label">Miembros sin bots</span><span class="dash-stat-value">${memberHumans}</span></div>
+    <div class="dash-stat-card"><span class="dash-stat-icon">👥</span><span class="dash-stat-label">Miembros</span><span class="dash-stat-value">${memberHumans}</span></div>
     <div class="dash-stat-card"><span class="dash-stat-icon">🤖</span><span class="dash-stat-label">Bots total</span><span class="dash-stat-value">${memberBots}</span></div>
     <div class="dash-stat-card"><span class="dash-stat-icon">🧩</span><span class="dash-stat-label">Módulos activos</span><span class="dash-stat-value">${enabledCount}/${modules.length}</span></div>`;
 
