@@ -15,9 +15,14 @@ const { buildKillNotificationImages, releaseKillBuffers } = require('./killImage
 
 const API = 'https://gameinfo.albiononline.com/api/gameinfo';
 const PREFIX = 'kill';
-const GUCCI_MIN_FAME = parseInt(process.env.GUCCI_MIN_FAME || '2000000', 10) || 2_000_000;
+const GUCCI_MIN_FAME = parseInt(process.env.GUCCI_MIN_FAME || '3500000', 10) || 3_500_000;
 const GUCCI_CHECK_MS = parseInt(process.env.GUCCI_CHECK_MS || '60000', 10) || 60_000;
 const GUCCI_NOTIFY_DELAY_MS = (parseFloat(process.env.GUCCI_NOTIFICATION_DELAY || '8') || 8) * 1000;
+
+function fmtGucciFameThreshold(fame = GUCCI_MIN_FAME) {
+  const m = fame / 1e6;
+  return Number.isInteger(m) ? `${m}M` : `${m.toFixed(1)}M`;
+}
 const GUCCI_GLOBAL_ENTITY = {
   name: 'Gucci Kills',
   entity_type: 'global',
@@ -554,7 +559,7 @@ async function runGucciMonitor(getDb, client, log) {
 
 const gucciKillsCmd = new SlashCommandBuilder()
   .setName('gucci-kills')
-  .setDescription('Activa feed global de kills ≥2M fama (open world)')
+  .setDescription(`Activa feed global de kills ≥${fmtGucciFameThreshold()} fama (open world)`)
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .addChannelOption((o) =>
     o
@@ -717,7 +722,7 @@ module.exports = {
     setInterval(() => runMonitor(getDb, client, log), 2 * 60 * 1000);
     setInterval(() => runGucciMonitor(getDb, client, log), GUCCI_CHECK_MS);
     log.info('Killboard monitor cada 2 min (imágenes PIL → canvas)');
-    log.info(`Gucci Kills cada ${GUCCI_CHECK_MS / 1000}s (≥${GUCCI_MIN_FAME / 1e6}M fama)`);
+    log.info(`Gucci Kills cada ${GUCCI_CHECK_MS / 1000}s (≥${fmtGucciFameThreshold()} fama)`);
   },
 
   async handleInteraction(ix, ctx) {
@@ -729,7 +734,7 @@ module.exports = {
       await ix.reply({
         content:
           `✅ **Gucci Kills** activo en ${canal}\n` +
-          `Umbral: **≥ ${(GUCCI_MIN_FAME / 1e6).toFixed(0)}M** fama · open world · Americas`,
+          `Umbral: **≥ ${fmtGucciFameThreshold()}** fama · open world · Americas`,
         ephemeral: false,
       });
       return true;

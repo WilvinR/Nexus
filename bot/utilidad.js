@@ -35,7 +35,7 @@ const CATEGORIES = {
       { name: '/killboard seguir', desc: 'Monitorea kills y muertes de un gremio o jugador.' },
       { name: '/killboard detener', desc: 'Detiene el seguimiento de una entidad.' },
       { name: '/killboard config', desc: 'Muestra la configuración activa del killboard.' },
-      { name: '/gucci-kills', desc: 'Activa feed global ≥2M fama (elige canal).' },
+      { name: '/gucci-kills', desc: 'Activa feed global ≥3.5M fama (elige canal).' },
       { name: '/gucci-kills-detener', desc: 'Desactiva Gucci Kills.' },
     ],
   },

@@ -281,13 +281,14 @@ function initModuleModals(deps) {
     ]);
     if (!r.ok) return alert('Error killboard');
     const { entities } = await r.json();
-    const gucciData = gucciRes.ok ? await gucciRes.json() : { config: null, minFame: 2000000 };
+    const gucciData = gucciRes.ok ? await gucciRes.json() : { config: null, minFame: 3500000 };
     const gucciCfg = gucciData.config;
-    const gucciMinM = Math.round((gucciData.minFame || 2000000) / 1e6);
+    const gucciMinM = (gucciData.minFame || 3500000) / 1e6;
+    const gucciMinLabel = Number.isInteger(gucciMinM) ? `${gucciMinM}M` : `${gucciMinM.toFixed(1)}M`;
 
     function render() {
       let html = `<div class="modal-section"><h3>Gucci Kills (global)</h3>
-        <p class="modal-meta">Kills open world ≥ <strong>${gucciMinM}M</strong> fama · imágenes killboard</p>
+        <p class="modal-meta">Kills open world ≥ <strong>${gucciMinLabel}</strong> fama · imágenes killboard</p>
         ${channelSelect('gk-ch', gucciCfg?.channelId, 'Canal Gucci Kills')}
         <div class="form-actions-row" style="margin-top:0.75rem">
           <button type="button" class="btn btn-accent btn-sm" id="gk-save">Guardar Gucci</button>
