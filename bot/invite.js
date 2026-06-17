@@ -1,6 +1,6 @@
 /** URL de invitación OAuth del bot (Discord). */
 const FALLBACK_CLIENT_ID = '1348090006547337318';
-const DEFAULT_PERMISSIONS = '268568576';
+const DEFAULT_PERMISSIONS = '1342310400';
 
 function getClientId() {
   if (process.env.CLIENT_ID) return String(process.env.CLIENT_ID).trim();

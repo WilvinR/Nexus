@@ -110,6 +110,51 @@ function canBotManageRole(guild, roleId) {
   return null;
 }
 
+const STATIC_EMOJI_LIMITS = [50, 100, 150, 250];
+
+function sanitizeEmojiName(raw) {
+  let n = String(raw || 'emoji')
+    .replace(/\.[^.]+$/i, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+  if (n.length < 2) n = `e_${Date.now().toString(36).slice(-8)}`;
+  return n.slice(0, 32);
+}
+
+function canBotManageEmojis(guild) {
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageGuildExpressions)) {
+    return 'El bot no tiene permiso de gestionar emojis (Expresiones del servidor).';
+  }
+  return null;
+}
+
+function emojiQuota(guild) {
+  const tier = Math.min(Math.max(guild.premiumTier ?? 0, 0), 3);
+  const limit = STATIC_EMOJI_LIMITS[tier];
+  const all = [...guild.emojis.cache.values()];
+  return {
+    staticCount: all.filter((e) => !e.animated).length,
+    animatedCount: all.filter((e) => e.animated).length,
+    staticLimit: limit,
+    animatedLimit: limit,
+    total: all.length,
+  };
+}
+
+function mapGuildEmojis(guild) {
+  return [...guild.emojis.cache.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((e) => ({
+      id: e.id,
+      name: e.name,
+      animated: e.animated,
+      url: e.imageURL({ size: 64 }),
+    }));
+}
+
 function registroGuilds(getDb, discordGuildId) {
   return getDb()
     .prepare(`
@@ -192,15 +237,86 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     } catch {
       /* cache parcial */
     }
-    const emojis = [...ctx.guild.emojis.cache.values()]
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((e) => ({
-        id: e.id,
-        name: e.name,
-        animated: e.animated,
-        url: e.imageURL({ size: 64 }),
-      }));
-    res.json({ ok: true, emojis });
+    const emojis = mapGuildEmojis(ctx.guild);
+    res.json({ ok: true, emojis, count: emojis.length, quota: emojiQuota(ctx.guild) });
+  });
+
+  app.post('/api/guilds/:guildId/emojis', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const permErr = canBotManageEmojis(ctx.guild);
+    if (permErr) return res.status(403).json({ error: permErr });
+
+    const name = sanitizeEmojiName(req.body?.name);
+    const b64 = String(req.body?.imageBase64 || '').trim();
+    if (!b64) return res.status(400).json({ error: 'Imagen requerida' });
+
+    let buf;
+    try {
+      buf = Buffer.from(b64, 'base64');
+    } catch {
+      return res.status(400).json({ error: 'Imagen no válida' });
+    }
+    if (!buf.length) return res.status(400).json({ error: 'Imagen vacía' });
+    if (buf.length > 256 * 1024) {
+      return res.status(400).json({ error: 'La imagen no puede superar 256 KB (límite de Discord para emojis).' });
+    }
+
+    await ctx.guild.emojis.fetch().catch(() => {});
+    const quota = emojiQuota(ctx.guild);
+    const imageName = String(req.body?.imageName || '');
+    const isAnimated = /\.gif$/i.test(imageName) || req.body?.animated === true;
+    if (isAnimated && quota.animatedCount >= quota.animatedLimit) {
+      return res.status(400).json({ error: `Límite de emojis animados alcanzado (${quota.animatedLimit}).` });
+    }
+    if (!isAnimated && quota.staticCount >= quota.staticLimit) {
+      return res.status(400).json({ error: `Límite de emojis estáticos alcanzado (${quota.staticLimit}).` });
+    }
+    if (ctx.guild.emojis.cache.some((e) => e.name === name)) {
+      return res.status(400).json({ error: `Ya existe un emoji llamado :${name}:` });
+    }
+
+    try {
+      const emoji = await ctx.guild.emojis.create({ attachment: buf, name });
+      res.json({
+        ok: true,
+        emoji: {
+          id: emoji.id,
+          name: emoji.name,
+          animated: emoji.animated,
+          url: emoji.imageURL({ size: 64 }),
+        },
+        quota: emojiQuota(ctx.guild),
+      });
+    } catch (e) {
+      log.warn(`emoji create ${ctx.guildId}: ${e.message}`);
+      res.status(400).json({ error: e.message || 'No se pudo crear el emoji' });
+    }
+  });
+
+  app.delete('/api/guilds/:guildId/emojis/:emojiId', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const permErr = canBotManageEmojis(ctx.guild);
+    if (permErr) return res.status(403).json({ error: permErr });
+
+    let emoji = ctx.guild.emojis.cache.get(gid(req.params.emojiId));
+    if (!emoji) {
+      try {
+        emoji = await ctx.guild.emojis.fetch(gid(req.params.emojiId));
+      } catch {
+        emoji = null;
+      }
+    }
+    if (!emoji) return res.status(404).json({ error: 'Emoji no encontrado' });
+
+    try {
+      await emoji.delete();
+      res.json({ ok: true, quota: emojiQuota(ctx.guild) });
+    } catch (e) {
+      log.warn(`emoji delete ${ctx.guildId}: ${e.message}`);
+      res.status(400).json({ error: e.message || 'No se pudo eliminar el emoji' });
+    }
   });
 
   app.get('/api/guilds/:guildId/registro', sessionAuth, async (req, res) => {

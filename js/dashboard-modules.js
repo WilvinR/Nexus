@@ -869,19 +869,53 @@ function initModuleModals(deps) {
       api(`/api/guilds/${modalGuildId}/emojis`),
     ]);
     const data = eventsRes.ok ? await eventsRes.json() : { events: [] };
-    const emojisData = emojisRes.ok ? await emojisRes.json() : { emojis: [] };
-    const guildEmojis = emojisData.emojis || [];
+    const emojisData = emojisRes.ok ? await emojisRes.json() : { emojis: [], count: 0, quota: null };
+    let guildEmojis = emojisData.emojis || [];
+    let emojiQuota = emojisData.quota;
 
-    const emojiGrid = guildEmojis.length
-      ? guildEmojis
-          .map(
-            (e) =>
-              `<button type="button" class="evt-emoji-btn" data-id="${escapeHtml(e.id)}" data-name="${escapeHtml(e.name)}" title=":${escapeHtml(e.name)}:">
+    function sanitizeEmojiNameClient(raw) {
+      let n = String(raw || 'emoji')
+        .replace(/\.[^.]+$/i, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '');
+      if (n.length < 2) n = `e_${Date.now().toString(36).slice(-8)}`;
+      return n.slice(0, 32);
+    }
+
+    function emojiPickerHtml(list) {
+      return list.length
+        ? list
+            .map(
+              (e) =>
+                `<button type="button" class="evt-emoji-btn" data-id="${escapeHtml(e.id)}" data-name="${escapeHtml(e.name)}" title=":${escapeHtml(e.name)}:">
                 <img src="${escapeHtml(e.url)}" alt="${escapeHtml(e.name)}" width="32" height="32">
               </button>`,
-          )
-          .join('')
-      : '<p class="modal-meta">No hay emojis personalizados en este servidor.</p>';
+            )
+            .join('')
+        : '<p class="modal-meta">No hay emojis personalizados. Sube imágenes en la pestaña <strong>Emojis</strong>.</p>';
+    }
+
+    function emojiManageHtml(list) {
+      return list.length
+        ? list
+            .map(
+              (e) =>
+                `<div class="evt-emoji-manage-item">
+                  <img src="${escapeHtml(e.url)}" alt="" width="36" height="36">
+                  <span class="evt-emoji-manage-name">:${escapeHtml(e.name)}:</span>
+                  <button type="button" class="icon-btn evt-emoji-del" data-id="${escapeHtml(e.id)}" data-name="${escapeHtml(e.name)}" title="Eliminar">❌</button>
+                </div>`,
+            )
+            .join('')
+        : '<p class="modal-meta">Aún no hay emojis en este servidor.</p>';
+    }
+
+    function quotaLabel(q) {
+      if (!q) return '';
+      return `${q.staticCount}/${q.staticLimit} estáticos · ${q.animatedCount}/${q.animatedLimit} animados`;
+    }
 
     const eventList =
       (data.events || []).length > 0
@@ -904,43 +938,62 @@ function initModuleModals(deps) {
 
     openModal(
       'Eventos',
-      `<div class="modal-section" id="evt-form-section">
-        <h3 id="evt-form-heading">Crear evento</h3>
-        <p class="modal-meta" id="evt-form-hint">Crea un evento con emojis del servidor. La hora es en UTC (ej. 20:00).</p>
-        ${channelSelect('evt-ch', '', 'Canal de publicación')}
-        <label class="form-label">Nombre<input class="form-input" id="evt-name" required></label>
-        <label class="form-label">Descripción<textarea class="form-input" id="evt-desc" rows="2"></textarea></label>
-        <label class="form-label">Hora UTC<input class="form-input" id="evt-time" placeholder="20:00" required></label>
-        <label class="form-label">Lugar<input class="form-input" id="evt-loc" placeholder="Black Zone..." required></label>
-        ${voiceChannelSelect('evt-voice', '', 'Canal de voz (opcional)')}
-        <label class="form-label">Color del embed<input class="form-input" id="evt-color" type="color" value="#5865f2"></label>
-        <label class="form-label">Imagen del evento (opcional)
-          <input class="form-input" id="evt-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
-        </label>
-        <label class="form-label hidden" id="evt-rm-image-wrap">
-          <input type="checkbox" id="evt-rm-image"> Quitar imagen actual
-        </label>
-        <div id="evt-image-preview" class="evt-image-preview hidden"></div>
-        <div class="evt-roles-block">
-          <h3 class="evt-roles-title">Roles del evento</h3>
-          <p class="modal-meta">Elige emoji → nombre y cantidad → <strong>Añadir rol</strong>. Quita roles con ❌ o limpia la lista.</p>
-          <input class="form-input" id="evt-emoji-search" type="search" placeholder="Buscar emoji por nombre…" autocomplete="off">
-          <div class="evt-emoji-grid" id="evt-emoji-grid">${emojiGrid}</div>
-          <div class="evt-role-form">
-            <span id="evt-picked-emoji" class="evt-picked-emoji">—</span>
-            <input class="form-input" id="evt-role-name" placeholder="Nombre del rol" maxlength="80">
-            <input class="form-input evt-role-qty" id="evt-role-qty" type="number" min="1" max="99" value="1" placeholder="Cant.">
-            <button type="button" class="btn" id="evt-add-role">Añadir rol</button>
+      `<div class="evt-modal-tabs" role="tablist">
+        <button type="button" class="evt-tab active" data-evt-tab="create" role="tab" aria-selected="true">Crear evento</button>
+        <button type="button" class="evt-tab" data-evt-tab="emojis" role="tab" aria-selected="false">Emojis <span class="evt-tab-badge" id="evt-emoji-tab-count">${guildEmojis.length}</span></button>
+      </div>
+      <div id="evt-tab-create" class="evt-tab-panel" role="tabpanel">
+        <div class="modal-section" id="evt-form-section">
+          <p class="modal-meta" id="evt-form-hint">Crea un evento con emojis del servidor. La hora es en UTC (ej. 20:00).</p>
+          ${channelSelect('evt-ch', '', 'Canal de publicación')}
+          <label class="form-label">Nombre<input class="form-input" id="evt-name" required></label>
+          <label class="form-label">Descripción<textarea class="form-input" id="evt-desc" rows="2"></textarea></label>
+          <label class="form-label">Hora UTC<input class="form-input" id="evt-time" placeholder="20:00" required></label>
+          <label class="form-label">Lugar<input class="form-input" id="evt-loc" placeholder="Black Zone..." required></label>
+          ${voiceChannelSelect('evt-voice', '', 'Canal de voz (opcional)')}
+          <label class="form-label">Color del embed<input class="form-input" id="evt-color" type="color" value="#5865f2"></label>
+          <label class="form-label">Imagen del evento (opcional)
+            <input class="form-input" id="evt-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
+          </label>
+          <label class="form-label hidden" id="evt-rm-image-wrap">
+            <input type="checkbox" id="evt-rm-image"> Quitar imagen actual
+          </label>
+          <div id="evt-image-preview" class="evt-image-preview hidden"></div>
+          <div class="evt-roles-block">
+            <h3 class="evt-roles-title">Roles del evento</h3>
+            <p class="modal-meta">Elige emoji → nombre y cantidad → <strong>Añadir rol</strong>. ¿Faltan iconos? Ve a la pestaña <strong>Emojis</strong>.</p>
+            <input class="form-input" id="evt-emoji-search" type="search" placeholder="Buscar emoji por nombre…" autocomplete="off">
+            <div class="evt-emoji-grid" id="evt-emoji-grid">${emojiPickerHtml(guildEmojis)}</div>
+            <div class="evt-role-form">
+              <span id="evt-picked-emoji" class="evt-picked-emoji">—</span>
+              <input class="form-input" id="evt-role-name" placeholder="Nombre del rol" maxlength="80">
+              <input class="form-input evt-role-qty" id="evt-role-qty" type="number" min="1" max="99" value="1" placeholder="Cant.">
+              <button type="button" class="btn" id="evt-add-role">Añadir rol</button>
+            </div>
+            <div class="evt-role-actions">
+              <button type="button" class="btn btn-sm" id="evt-clear-roles">Limpiar roles</button>
+              <span class="modal-meta" id="evt-role-count">0 roles</span>
+            </div>
+            <ul class="evt-role-list" id="evt-role-list"></ul>
           </div>
-          <div class="evt-role-actions">
-            <button type="button" class="btn btn-sm" id="evt-clear-roles">Limpiar roles</button>
-            <span class="modal-meta" id="evt-role-count">0 roles</span>
+          <div class="form-actions">
+            <button type="button" class="btn btn-accent" id="evt-submit-btn" data-act="create-evt">Publicar evento</button>
+            <button type="button" class="btn hidden" id="evt-cancel-edit">Cancelar edición</button>
           </div>
-          <ul class="evt-role-list" id="evt-role-list"></ul>
         </div>
-        <div class="form-actions">
-          <button type="button" class="btn btn-accent" id="evt-submit-btn" data-act="create-evt">Publicar evento</button>
-          <button type="button" class="btn hidden" id="evt-cancel-edit">Cancelar edición</button>
+      </div>
+      <div id="evt-tab-emojis" class="evt-tab-panel hidden" role="tabpanel">
+        <div class="modal-section">
+          <p class="modal-meta" id="evt-emoji-quota">${escapeHtml(quotaLabel(emojiQuota))}</p>
+          <label class="form-label">Subir imágenes (PNG, JPG, GIF, WebP · máx. 256 KB c/u)
+            <input class="form-input" id="evt-emoji-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple>
+          </label>
+          <label class="form-label">Nombre del emoji (opcional; si subes varias, se usa el nombre del archivo)
+            <input class="form-input" id="evt-emoji-name" placeholder="tank_healer" maxlength="32" pattern="[a-zA-Z0-9_]{2,32}">
+          </label>
+          <button type="button" class="btn btn-accent" id="evt-emoji-submit">Crear emoji(s)</button>
+          <p class="modal-meta">Las imágenes se convierten en emojis del servidor. Luego úsalos en <strong>Crear evento</strong>.</p>
+          <div class="evt-emoji-manage-list" id="evt-emoji-manage-list">${emojiManageHtml(guildEmojis)}</div>
         </div>
       </div>
       <div class="modal-section">
@@ -962,10 +1015,131 @@ function initModuleModals(deps) {
     const channelSelectEl = document.getElementById('evt-ch');
     const submitBtn = document.getElementById('evt-submit-btn');
     const cancelEditBtn = document.getElementById('evt-cancel-edit');
-    const formHeading = document.getElementById('evt-form-heading');
     const formHint = document.getElementById('evt-form-hint');
     const rmImageWrap = document.getElementById('evt-rm-image-wrap');
     const rmImageCheck = document.getElementById('evt-rm-image');
+    const emojiGridEl = document.getElementById('evt-emoji-grid');
+    const emojiManageEl = document.getElementById('evt-emoji-manage-list');
+    const emojiTabCountEl = document.getElementById('evt-emoji-tab-count');
+    const emojiQuotaEl = document.getElementById('evt-emoji-quota');
+
+    function switchEvtTab(tab) {
+      body.querySelectorAll('.evt-tab').forEach((t) => {
+        const on = t.dataset.evtTab === tab;
+        t.classList.toggle('active', on);
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      document.getElementById('evt-tab-create')?.classList.toggle('hidden', tab !== 'create');
+      document.getElementById('evt-tab-emojis')?.classList.toggle('hidden', tab !== 'emojis');
+    }
+
+    body.querySelectorAll('.evt-tab').forEach((btn) => {
+      btn.addEventListener('click', () => switchEvtTab(btn.dataset.evtTab));
+    });
+
+    function bindEmojiPickerButtons() {
+      body.querySelectorAll('.evt-emoji-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          body.querySelectorAll('.evt-emoji-btn').forEach((b) => b.classList.remove('is-picked'));
+          btn.classList.add('is-picked');
+          pickedEmoji = { id: btn.dataset.id, name: btn.dataset.name, url: btn.querySelector('img')?.src || '' };
+          pickedEl.innerHTML = `<img src="${escapeHtml(pickedEmoji.url)}" alt="" width="28" height="28">`;
+        });
+      });
+    }
+
+    function bindEmojiDeleteButtons() {
+      body.querySelectorAll('.evt-emoji-del').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const label = btn.dataset.name || 'este emoji';
+          if (!confirm(`¿Eliminar :${label}: del servidor?`)) return;
+          btn.disabled = true;
+          const res = await api(`/api/guilds/${modalGuildId}/emojis/${btn.dataset.id}`, { method: 'DELETE' });
+          if (res.ok) {
+            const d = await res.json().catch(() => ({}));
+            if (d.quota) emojiQuota = d.quota;
+            await refreshEmojis();
+          } else {
+            alert((await res.json().catch(() => ({}))).error || 'No se pudo eliminar');
+            btn.disabled = false;
+          }
+        });
+      });
+    }
+
+    async function refreshEmojis() {
+      const res = await api(`/api/guilds/${modalGuildId}/emojis`);
+      if (!res.ok) return;
+      const d = await res.json();
+      guildEmojis = d.emojis || [];
+      emojiQuota = d.quota;
+      if (emojiGridEl) emojiGridEl.innerHTML = emojiPickerHtml(guildEmojis);
+      if (emojiManageEl) emojiManageEl.innerHTML = emojiManageHtml(guildEmojis);
+      if (emojiTabCountEl) emojiTabCountEl.textContent = String(guildEmojis.length);
+      if (emojiQuotaEl) emojiQuotaEl.textContent = quotaLabel(emojiQuota);
+      bindEmojiPickerButtons();
+      bindEmojiDeleteButtons();
+    }
+
+    bindEmojiPickerButtons();
+    bindEmojiDeleteButtons();
+
+    document.getElementById('evt-emoji-submit')?.addEventListener('click', async () => {
+      const input = document.getElementById('evt-emoji-upload');
+      const nameInput = document.getElementById('evt-emoji-name');
+      const files = [...(input?.files || [])];
+      if (!files.length) return alert('Elige al menos una imagen.');
+      const submitEmojiBtn = document.getElementById('evt-emoji-submit');
+      submitEmojiBtn.disabled = true;
+      let ok = 0;
+      const errors = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.size > 256 * 1024) {
+          errors.push(`${file.name}: supera 256 KB`);
+          continue;
+        }
+        const baseName =
+          files.length === 1 && nameInput?.value.trim()
+            ? sanitizeEmojiNameClient(nameInput.value.trim())
+            : sanitizeEmojiNameClient(file.name);
+        try {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('lectura'));
+            reader.readAsDataURL(file);
+          });
+          const imageBase64 = String(dataUrl).split(',')[1];
+          const res = await api(`/api/guilds/${modalGuildId}/emojis`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: baseName, imageBase64, imageName: file.name }),
+          });
+          if (res.ok) {
+            ok++;
+            const d = await res.json().catch(() => ({}));
+            if (d.quota) emojiQuota = d.quota;
+          } else {
+            const err = await res.json().catch(() => ({}));
+            errors.push(`${file.name}: ${err.error || 'error'}`);
+          }
+        } catch {
+          errors.push(`${file.name}: no se pudo leer`);
+        }
+      }
+      submitEmojiBtn.disabled = false;
+      if (input) input.value = '';
+      if (nameInput) nameInput.value = '';
+      await refreshEmojis();
+      if (ok && !errors.length) {
+        alert(ok === 1 ? 'Emoji creado.' : `${ok} emojis creados.`);
+      } else if (ok && errors.length) {
+        alert(`${ok} creado(s). Errores:\n${errors.join('\n')}`);
+      } else if (errors.length) {
+        alert(errors.join('\n'));
+      }
+    });
 
     function roleEmojiHtml(r) {
       if (r.emojiUrl) {
@@ -977,7 +1151,6 @@ function initModuleModals(deps) {
     function resetCreateForm() {
       editingId = null;
       channelSelectEl.disabled = false;
-      formHeading.textContent = 'Crear evento';
       formHint.textContent = 'Crea un evento con emojis del servidor. La hora es en UTC (ej. 20:00).';
       submitBtn.textContent = 'Publicar evento';
       submitBtn.dataset.act = 'create-evt';
@@ -1040,7 +1213,7 @@ function initModuleModals(deps) {
         });
       }
       renderRoles();
-      formHeading.textContent = 'Editar evento';
+      switchEvtTab('create');
       formHint.textContent = 'Los cambios se aplican al mensaje en Discord. Las inscripciones se conservan si el rol sigue igual.';
       submitBtn.textContent = 'Guardar cambios';
       submitBtn.dataset.act = 'save-evt';
@@ -1066,17 +1239,7 @@ function initModuleModals(deps) {
       if (countEl) countEl.textContent = `${roles.length} rol${roles.length !== 1 ? 'es' : ''}`;
     }
 
-    body.querySelectorAll('.evt-emoji-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        body.querySelectorAll('.evt-emoji-btn').forEach((b) => b.classList.remove('is-picked'));
-        btn.classList.add('is-picked');
-        pickedEmoji = { id: btn.dataset.id, name: btn.dataset.name, url: btn.querySelector('img')?.src || '' };
-        pickedEl.innerHTML = `<img src="${escapeHtml(pickedEmoji.url)}" alt="" width="28" height="28">`;
-      });
-    });
-
     const emojiSearch = document.getElementById('evt-emoji-search');
-    const emojiGridEl = document.getElementById('evt-emoji-grid');
     if (emojiSearch && emojiGridEl) {
       emojiSearch.addEventListener('input', () => {
         const q = emojiSearch.value.trim().toLowerCase();

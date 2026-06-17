@@ -86,7 +86,7 @@ const CATEGORIES = {
       { name: '/editar_evento', desc: 'Edita un evento activo (Mod).' },
       { name: '/eliminar_evento', desc: 'Elimina un evento (Mod).' },
       { name: '/plantillas', desc: 'Carga o elimina plantillas de eventos (Mod).' },
-      { name: 'Dashboard web', desc: 'Crea, edita y elimina eventos desde el panel → Eventos → Configurar.' },
+      { name: 'Dashboard web', desc: 'Crea, edita y elimina eventos; sube emojis del servidor y configura roles desde Eventos → Configurar.' },
     ],
   },
   sanciones: {
