@@ -902,9 +902,8 @@ function initModuleModals(deps) {
         ? list
             .map(
               (e) =>
-                `<div class="evt-emoji-manage-item">
-                  <img src="${escapeHtml(e.url)}" alt="" width="36" height="36">
-                  <span class="evt-emoji-manage-name">:${escapeHtml(e.name)}:</span>
+                `<div class="evt-emoji-manage-item" title=":${escapeHtml(e.name)}:">
+                  <img src="${escapeHtml(e.url)}" alt="${escapeHtml(e.name)}" width="40" height="40">
                   <button type="button" class="icon-btn evt-emoji-del" data-id="${escapeHtml(e.id)}" data-name="${escapeHtml(e.name)}" title="Eliminar">❌</button>
                 </div>`,
             )
@@ -951,7 +950,8 @@ function initModuleModals(deps) {
           <label class="form-label">Hora UTC<input class="form-input" id="evt-time" placeholder="20:00" required></label>
           <label class="form-label">Lugar<input class="form-input" id="evt-loc" placeholder="Black Zone..." required></label>
           ${voiceChannelSelect('evt-voice', '', 'Canal de voz (opcional)')}
-          <label class="form-label">Color del embed<input class="form-input" id="evt-color" type="color" value="#5865f2"></label>
+          <label class="form-label">Color del embed</label>
+          <input type="color" id="evt-color" class="evt-color-input" value="#5865f2">
           <label class="form-label">Imagen del evento (opcional)
             <input class="form-input" id="evt-image" type="file" accept="image/png,image/jpeg,image/gif,image/webp">
           </label>
@@ -962,13 +962,12 @@ function initModuleModals(deps) {
           <div class="evt-roles-block">
             <h3 class="evt-roles-title">Roles del evento</h3>
             <p class="modal-meta">Elige emoji → nombre y cantidad → <strong>Añadir rol</strong>. ¿Faltan iconos? Ve a la pestaña <strong>Emojis</strong>.</p>
-            <input class="form-input" id="evt-emoji-search" type="search" placeholder="Buscar emoji por nombre…" autocomplete="off">
             <div class="evt-emoji-grid" id="evt-emoji-grid">${emojiPickerHtml(guildEmojis)}</div>
             <div class="evt-role-form">
               <span id="evt-picked-emoji" class="evt-picked-emoji">—</span>
               <input class="form-input" id="evt-role-name" placeholder="Nombre del rol" maxlength="80">
               <input class="form-input evt-role-qty" id="evt-role-qty" type="number" min="1" max="99" value="1" placeholder="Cant.">
-              <button type="button" class="btn" id="evt-add-role">Añadir rol</button>
+              <button type="button" class="btn btn-sm" id="evt-add-role">Añadir rol</button>
             </div>
             <div class="evt-role-actions">
               <button type="button" class="btn btn-sm" id="evt-clear-roles">Limpiar roles</button>
@@ -987,9 +986,6 @@ function initModuleModals(deps) {
           <p class="modal-meta" id="evt-emoji-quota">${escapeHtml(quotaLabel(emojiQuota))}</p>
           <label class="form-label">Subir imágenes (PNG, JPG, GIF, WebP · máx. 256 KB c/u)
             <input class="form-input" id="evt-emoji-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple>
-          </label>
-          <label class="form-label">Nombre del emoji (opcional; si subes varias, se usa el nombre del archivo)
-            <input class="form-input" id="evt-emoji-name" placeholder="tank_healer" maxlength="32" pattern="[a-zA-Z0-9_]{2,32}">
           </label>
           <button type="button" class="btn btn-accent" id="evt-emoji-submit">Crear emoji(s)</button>
           <p class="modal-meta">Las imágenes se convierten en emojis del servidor. Luego úsalos en <strong>Crear evento</strong>.</p>
@@ -1084,9 +1080,17 @@ function initModuleModals(deps) {
     bindEmojiPickerButtons();
     bindEmojiDeleteButtons();
 
+    const colorInput = document.getElementById('evt-color');
+    function syncEvtColor() {
+      if (colorInput) colorInput.style.backgroundColor = colorInput.value;
+    }
+    if (colorInput) {
+      colorInput.addEventListener('input', syncEvtColor);
+      syncEvtColor();
+    }
+
     document.getElementById('evt-emoji-submit')?.addEventListener('click', async () => {
       const input = document.getElementById('evt-emoji-upload');
-      const nameInput = document.getElementById('evt-emoji-name');
       const files = [...(input?.files || [])];
       if (!files.length) return alert('Elige al menos una imagen.');
       const submitEmojiBtn = document.getElementById('evt-emoji-submit');
@@ -1099,10 +1103,7 @@ function initModuleModals(deps) {
           errors.push(`${file.name}: supera 256 KB`);
           continue;
         }
-        const baseName =
-          files.length === 1 && nameInput?.value.trim()
-            ? sanitizeEmojiNameClient(nameInput.value.trim())
-            : sanitizeEmojiNameClient(file.name);
+        const baseName = sanitizeEmojiNameClient(file.name);
         try {
           const dataUrl = await new Promise((resolve, reject) => {
             const reader = new FileReader();
@@ -1130,7 +1131,6 @@ function initModuleModals(deps) {
       }
       submitEmojiBtn.disabled = false;
       if (input) input.value = '';
-      if (nameInput) nameInput.value = '';
       await refreshEmojis();
       if (ok && !errors.length) {
         alert(ok === 1 ? 'Emoji creado.' : `${ok} emojis creados.`);
@@ -1164,6 +1164,7 @@ function initModuleModals(deps) {
       document.getElementById('evt-loc').value = '';
       document.getElementById('evt-voice').value = '';
       document.getElementById('evt-color').value = '#5865f2';
+      syncEvtColor();
       imageInput.value = '';
       imageBase64 = null;
       imageName = null;
@@ -1189,6 +1190,7 @@ function initModuleModals(deps) {
       document.getElementById('evt-loc').value = ev.location || '';
       document.getElementById('evt-voice').value = ev.voiceChannelId || '';
       document.getElementById('evt-color').value = ev.embedColor || '#5865f2';
+      syncEvtColor();
       imageInput.value = '';
       imageBase64 = null;
       imageName = null;
@@ -1237,17 +1239,6 @@ function initModuleModals(deps) {
         : '<li class="modal-meta">Sin roles aún — añade al menos uno.</li>';
       const countEl = document.getElementById('evt-role-count');
       if (countEl) countEl.textContent = `${roles.length} rol${roles.length !== 1 ? 'es' : ''}`;
-    }
-
-    const emojiSearch = document.getElementById('evt-emoji-search');
-    if (emojiSearch && emojiGridEl) {
-      emojiSearch.addEventListener('input', () => {
-        const q = emojiSearch.value.trim().toLowerCase();
-        emojiGridEl.querySelectorAll('.evt-emoji-btn').forEach((btn) => {
-          const name = (btn.dataset.name || '').toLowerCase();
-          btn.classList.toggle('hidden', Boolean(q && !name.includes(q)));
-        });
-      });
     }
 
     document.getElementById('evt-clear-roles').addEventListener('click', () => {
