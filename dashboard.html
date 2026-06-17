@@ -24,6 +24,7 @@
       <button type="button" class="dash-header-nav-link dash-nav-guild-only hidden" data-nav="home">Inicio</button>
       <button type="button" class="dash-header-nav-link dash-nav-guild-only hidden" data-nav="modules">Módulos</button>
       <button type="button" class="dash-header-nav-link" data-nav="search"><span class="dash-nav-label-long">Información Albion</span><span class="dash-nav-label-short">Albion</span></button>
+      <button type="button" class="dash-header-nav-link" data-nav="loot">Comparar loot</button>
       <button type="button" class="dash-header-nav-link" data-nav="help">Ayuda</button>
     </div>
   </nav>
@@ -62,6 +63,28 @@
           </div>
         </header>
         <div id="mod-list" class="dash-mod-grid"></div>
+      </section>
+
+      <section id="view-loot" class="dash-extra-view hidden">
+        <div class="modal-section">
+          <h3>Comparador de loot</h3>
+          <p class="modal-meta">Compara el log de loot de una pelea con los movimientos del cofre del gremio. Detecta qué jugador recogió ítems pero no los depositó en la ventana de la pelea.</p>
+          <div class="loot-upload-grid">
+            <label class="form-label loot-upload-box">
+              <span>Log de loot (TSV, comillas)</span>
+              <input type="file" id="loot-file-loot" accept=".csv,.tsv,.txt" class="loot-file-input">
+              <span class="loot-file-name" id="loot-file-loot-name">Ningún archivo</span>
+            </label>
+            <label class="form-label loot-upload-box">
+              <span>Log del cofre (CSV, comas)</span>
+              <input type="file" id="loot-file-chest" accept=".csv,.txt" class="loot-file-input">
+              <span class="loot-file-name" id="loot-file-chest-name">Ningún archivo</span>
+            </label>
+          </div>
+          <button type="button" class="btn btn-accent btn-sm" id="loot-compare-btn">Comparar</button>
+          <p id="loot-compare-status" class="loot-compare-status hidden" role="status"></p>
+          <div id="loot-compare-results" class="loot-compare-results"></div>
+        </div>
       </section>
 
       <section id="view-help" class="dash-extra-view hidden">

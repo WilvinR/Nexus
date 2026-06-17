@@ -3444,3 +3444,126 @@ nav.site-nav-dash {
     width: 100%;
   }
 }
+
+.loot-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.loot-upload-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+}
+
+.loot-file-input {
+  font-size: 0.85rem;
+}
+
+.loot-file-name {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.loot-compare-status {
+  margin: 12px 0;
+  color: var(--accent-bright);
+}
+
+.loot-compare-results {
+  margin-top: 20px;
+}
+
+.loot-summary {
+  margin-bottom: 20px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.loot-all-ok {
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: rgba(46, 204, 113, 0.12);
+  border: 1px solid rgba(46, 204, 113, 0.35);
+  color: #7dcea0;
+  font-weight: 600;
+}
+
+.loot-player-card {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.loot-player-card.loot-player-ok {
+  border-color: rgba(46, 204, 113, 0.35);
+  background: rgba(46, 204, 113, 0.06);
+}
+
+.loot-player-name {
+  margin: 0 0 10px;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.loot-player-status {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+.loot-item-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.loot-item-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 80px;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.loot-item-cell img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.loot-item-ph {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  background: #404249;
+  border-radius: 4px;
+  font-weight: 700;
+  color: #aaa;
+}
+
+.loot-item-qty {
+  margin-top: 4px;
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.9rem;
+  color: #ff6b6b;
+  font-weight: 700;
+}

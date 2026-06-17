@@ -20,6 +20,7 @@ const battle = require('./battle');
 const bal = require('./bal');
 const utilidad = require('./utilidad');
 const mercado = require('./mercado');
+const lootCompare = require('./lootCompare');
 const { moduleForInteraction, isModuleEnabled } = require('./modules');
 const commandSync = require('./commandSync');
 const { logError, logSystem } = require('./adminRoutes');
@@ -29,7 +30,7 @@ const killImages = require('./killImages');
 const { logCommand, ensureGuildMeta, startStatsScheduler } = require('./stats');
 const { buildInviteUrl } = require('./invite');
 
-const modulos = [require('./registro'), kill, moderacion, eventos, sanciones, battle, bal, utilidad, mercado];
+const modulos = [require('./registro'), kill, moderacion, eventos, sanciones, battle, bal, utilidad, mercado, lootCompare];
 commandSync.init(modulos, logs);
 
 // ——— .env ———

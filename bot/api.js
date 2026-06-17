@@ -4,6 +4,7 @@ const { registerGuildConfigRoutes } = require('./guildConfigRoutes');
 const { quickMemberStats } = require('./memberStats');
 const { registerAdminRoutes, logSystem, isBotOwner, getBotOwnerIds, parseYoutubeId } = require('./adminRoutes');
 const { buildInviteUrl, getClientId } = require('./invite');
+const { compareLootFiles } = require('./lootComparator');
 
 let server = null;
 const userGuildCache = new Map();
@@ -550,6 +551,21 @@ function start(client, log, getDb, hooks = {}) {
       res.json({ ok: true, players });
     } catch (e) {
       res.status(502).json({ error: e.message || 'Error de búsqueda' });
+    }
+  });
+
+  app.post('/api/loot/compare', sessionAuth, async (req, res) => {
+    const lootCsv = req.body?.lootCsv;
+    const chestCsv = req.body?.chestCsv;
+    if (!lootCsv || !chestCsv) {
+      return res.status(400).json({ error: 'Faltan los archivos loot y/o cofre.' });
+    }
+    try {
+      const result = await compareLootFiles(String(lootCsv), String(chestCsv));
+      if (!result.ok) return res.status(400).json({ error: result.error });
+      res.json(result);
+    } catch (e) {
+      res.status(500).json({ error: e.message || 'Error al comparar loot.' });
     }
   });
 

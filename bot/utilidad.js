@@ -111,6 +111,17 @@ const CATEGORIES = {
       { name: '/pagar', desc: 'Registra un pago y descuenta plata del balance (Mod).' },
     ],
   },
+  loot: {
+    label: 'Loot Compare',
+    emoji: '📋',
+    commands: [
+      {
+        name: '/comparar-loot',
+        desc: 'Compara el log de loot de una pelea vs movimientos del cofre (2 CSV adjuntos, Mod).',
+      },
+      { name: 'Dashboard web', desc: 'Sube ambos CSV y compara desde Comparar loot en el panel.' },
+    ],
+  },
   utilidad: {
     label: 'Utilidad',
     emoji: '🔧',

@@ -9,6 +9,7 @@ const MODULES = [
   { id: 'sanciones', name: 'Sanciones', desc: 'Strikes, multas e infracciones' },
   { id: 'bal', name: 'Bal', desc: 'Balance virtual del gremio' },
   { id: 'utilidad', name: 'Utilidad', desc: 'UTC, ayuda, sugerencias' },
+  { id: 'loot', name: 'Loot Compare', desc: 'Compara loot de pelea vs cofre del gremio' },
 ];
 
 const COMMAND_TO_MODULE = {
@@ -47,6 +48,7 @@ const COMMAND_TO_MODULE = {
   infoserver: 'moderacion',
   logs: 'logs',
   pausar_logs: 'logs',
+  'comparar-loot': 'loot',
 };
 
 function prefixModule(customId) {

@@ -15,6 +15,7 @@ const MODULE_EMOJI = {
   sanciones: '⚖️',
   bal: '💰',
   utilidad: '📩',
+  loot: '📋',
 };
 
 function api(path, opts = {}) {
@@ -83,6 +84,7 @@ function hideAllDashViews() {
   document.getElementById('guild-modules')?.classList.add('hidden');
   document.getElementById('view-help')?.classList.add('hidden');
   document.getElementById('view-search')?.classList.add('hidden');
+  document.getElementById('view-loot')?.classList.add('hidden');
 }
 
 function setGuildAvatarEl(el, g) {
@@ -133,6 +135,10 @@ function updatePageHeader(nav) {
     titleEl.innerHTML = 'INFORMACIÓN <span>ALBION</span>';
     sectionLabel.textContent = '// ALBION';
     hint.classList.add('hidden');
+  } else if (nav === 'loot') {
+    titleEl.innerHTML = 'COMPARAR <span>LOOT</span>';
+    sectionLabel.textContent = '// LOOT';
+    hint.classList.add('hidden');
   }
 }
 
@@ -172,6 +178,8 @@ function switchNav(nav) {
   } else if (nav === 'search') {
     document.getElementById('view-search').classList.remove('hidden');
     document.getElementById('albion-search-q')?.focus();
+  } else if (nav === 'loot') {
+    document.getElementById('view-loot').classList.remove('hidden');
   }
 }
 
@@ -864,6 +872,125 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+let lootCsvText = '';
+let chestCsvText = '';
+
+function bindLootFileInput(inputId, nameId, setter) {
+  const input = document.getElementById(inputId);
+  const nameEl = document.getElementById(nameId);
+  if (!input || !nameEl) return;
+  input.addEventListener('change', () => {
+    const file = input.files?.[0];
+    if (!file) {
+      setter('');
+      nameEl.textContent = 'Ningún archivo';
+      return;
+    }
+    nameEl.textContent = file.name;
+    const reader = new FileReader();
+    reader.onload = () => setter(String(reader.result || ''));
+    reader.readAsText(file);
+  });
+}
+
+function renderLootResults(data) {
+  const box = document.getElementById('loot-compare-results');
+  if (!box) return;
+  box.replaceChildren();
+
+  const summary = document.createElement('div');
+  summary.className = 'loot-summary';
+  summary.innerHTML =
+    `<p class="loot-window"><strong>Ventana de pelea:</strong> ${escapeHtml(data.window.fromLabel)} → ${escapeHtml(data.window.toLabel)}</p>` +
+    `<p class="loot-stats">Jugadores: <strong>${data.stats.players}</strong> · Pendientes: <strong>${data.stats.pending}</strong> · ✅ Entregado: <strong>${data.stats.delivered}</strong></p>` +
+    `<p class="modal-meta">Loot: ${data.stats.lootRows} filas · Cofre en ventana: ${data.stats.chestInWindow}/${data.stats.chestRows}</p>`;
+  box.appendChild(summary);
+
+  if (!data.stats.pending) {
+    const ok = document.createElement('p');
+    ok.className = 'loot-all-ok';
+    ok.textContent = '✅ Todos los jugadores entregaron su loot al cofre.';
+    box.appendChild(ok);
+    return;
+  }
+
+  for (const p of data.players) {
+    const card = document.createElement('article');
+    card.className = 'loot-player-card';
+    if (p.status === 'ok') {
+      card.classList.add('loot-player-ok');
+      card.innerHTML = `<h4 class="loot-player-name">✅ ${escapeHtml(p.name)}</h4><p class="loot-player-status">Todo entregado</p>`;
+    } else {
+      card.innerHTML = `<h4 class="loot-player-name">⚠️ ${escapeHtml(p.name)}</h4>`;
+      const grid = document.createElement('div');
+      grid.className = 'loot-item-grid';
+      for (const it of p.missing) {
+        const cell = document.createElement('div');
+        cell.className = 'loot-item-cell';
+        cell.title = `${it.object} (×${it.missing})`;
+        if (it.imageUrl) {
+          const img = document.createElement('img');
+          img.src = it.imageUrl;
+          img.alt = it.object;
+          img.width = 72;
+          img.height = 72;
+          img.loading = 'lazy';
+          cell.appendChild(img);
+        } else {
+          const ph = document.createElement('span');
+          ph.className = 'loot-item-ph';
+          ph.textContent = '?';
+          cell.appendChild(ph);
+        }
+        const qty = document.createElement('span');
+        qty.className = 'loot-item-qty';
+        qty.textContent = `×${it.missing}`;
+        cell.appendChild(qty);
+        grid.appendChild(cell);
+      }
+      card.appendChild(grid);
+    }
+    box.appendChild(card);
+  }
+}
+
+async function runLootCompare() {
+  const status = document.getElementById('loot-compare-status');
+  const btn = document.getElementById('loot-compare-btn');
+  const box = document.getElementById('loot-compare-results');
+  if (!lootCsvText || !chestCsvText) {
+    if (status) {
+      status.textContent = 'Selecciona ambos archivos antes de comparar.';
+      status.classList.remove('hidden');
+    }
+    return;
+  }
+  if (status) {
+    status.textContent = 'Comparando y resolviendo imágenes de ítems…';
+    status.classList.remove('hidden');
+  }
+  if (btn) btn.disabled = true;
+  if (box) box.replaceChildren();
+  try {
+    const r = await api('/api/loot/compare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lootCsv: lootCsvText, chestCsv: chestCsvText }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || 'Error al comparar');
+    if (status) status.classList.add('hidden');
+    renderLootResults(data);
+  } catch (e) {
+    if (status) {
+      status.textContent = e.message || 'Error al comparar';
+      status.classList.remove('hidden');
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   moduleModals = initModuleModals({
     api,
@@ -904,6 +1031,14 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('albion-search-q')?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') runAlbionSearch();
   });
+
+  bindLootFileInput('loot-file-loot', 'loot-file-loot-name', (t) => {
+    lootCsvText = t;
+  });
+  bindLootFileInput('loot-file-chest', 'loot-file-chest-name', (t) => {
+    chestCsvText = t;
+  });
+  document.getElementById('loot-compare-btn')?.addEventListener('click', runLootCompare);
 
   const authFromUrl = NexusAuth.applyTokenFromUrl(showAuthError);
   if (authFromUrl === 'token' || NexusAuth.getToken()) {
