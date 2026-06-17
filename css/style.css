@@ -2037,12 +2037,12 @@ footer {
 
 .evt-emoji-manage-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(52px, 1fr));
-  gap: 8px;
-  max-height: 220px;
+  grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+  gap: 10px;
+  max-height: 240px;
   overflow-y: auto;
   margin-top: 12px;
-  padding: 8px;
+  padding: 10px;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
@@ -2053,30 +2053,44 @@ footer {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   margin: 0 auto;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
 }
 
 .evt-emoji-manage-item img {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   object-fit: contain;
 }
 
-.evt-emoji-manage-item .evt-emoji-del {
+.evt-emoji-del {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 22px;
-  height: 22px;
+  top: -2px;
+  right: -2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  min-width: 0;
+  min-height: 0;
   padding: 0;
-  font-size: 0.65rem;
+  border: none;
+  border-radius: 50%;
+  background: rgba(180, 40, 40, 0.95);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1;
-  border-radius: 4px;
-  background: rgba(20, 20, 24, 0.95);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+.evt-emoji-del:hover {
+  background: #e74c3c;
 }
 
 .evt-color-input {

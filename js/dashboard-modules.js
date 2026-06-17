@@ -903,8 +903,8 @@ function initModuleModals(deps) {
             .map(
               (e) =>
                 `<div class="evt-emoji-manage-item" title=":${escapeHtml(e.name)}:">
-                  <img src="${escapeHtml(e.url)}" alt="${escapeHtml(e.name)}" width="40" height="40">
-                  <button type="button" class="icon-btn evt-emoji-del" data-id="${escapeHtml(e.id)}" data-name="${escapeHtml(e.name)}" title="Eliminar">❌</button>
+                  <img src="${escapeHtml(e.url)}" alt="${escapeHtml(e.name)}" width="48" height="48">
+                  <button type="button" class="evt-emoji-del" data-id="${escapeHtml(e.id)}" data-name="${escapeHtml(e.name)}" title="Eliminar" aria-label="Eliminar">×</button>
                 </div>`,
             )
             .join('')
