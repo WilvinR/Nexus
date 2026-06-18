@@ -318,6 +318,7 @@ function classifyFile(text) {
   const sample = lines[1] || '';
 
   if (header.includes('timestamp_utc') && header.includes('item_id')) return 'combat';
+  if (lines[0].includes(';') && header.includes('item_id') && header.includes('item_name')) return 'combat';
   if (sample.includes('\t') || header.includes('\t')) return 'ingame_tsv';
   if (header.includes('fecha') && header.includes('jugador') && header.includes('objeto')) {
     return 'chest_csv';
@@ -376,12 +377,13 @@ async function compareLootFiles(lootCsv, chestCsv) {
   lootType = classifyFile(lootText);
   chestType = classifyFile(chestText);
 
+  // Mismo formato in-game (tabulaciones): la casilla izquierda = loot, derecha = cofre.
   if (lootType === 'ingame_tsv' && chestType === 'ingame_tsv') {
-    return {
-      ok: false,
-      error:
-        'Ambos archivos tienen formato in-game (tabulaciones). El loot de combate debe ser el export UTC (punto y coma).',
-    };
+    // confiar en el slot del usuario
+  } else if (lootType === 'ingame_tsv' && chestType === 'combat') {
+    [lootText, chestText] = swapFiles(lootText, chestText);
+    [lootType, chestType] = [chestType, lootType];
+    filesSwapped = true;
   }
 
   if (lootType !== 'combat' && lootType !== 'ingame_tsv') {
