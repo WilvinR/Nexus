@@ -3478,6 +3478,12 @@ nav.site-nav-dash {
   color: var(--accent-bright);
 }
 
+.loot-swap-note {
+  margin: 10px 0 0;
+  color: #f0c674;
+  font-size: 0.9rem;
+}
+
 .loot-compare-results {
   margin-top: 20px;
 }

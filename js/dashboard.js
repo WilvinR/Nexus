@@ -903,7 +903,10 @@ function renderLootResults(data) {
   summary.innerHTML =
     `<p class="loot-window"><strong>Ventana de pelea:</strong> ${escapeHtml(data.window.fromLabel)} → ${escapeHtml(data.window.toLabel)}</p>` +
     `<p class="loot-stats">Jugadores: <strong>${data.stats.players}</strong> · Pendientes: <strong>${data.stats.pending}</strong> · ✅ Entregado: <strong>${data.stats.delivered}</strong></p>` +
-    `<p class="modal-meta">Loot: ${data.stats.lootRows} filas · Cofre en ventana: ${data.stats.chestInWindow}/${data.stats.chestRows}</p>`;
+    `<p class="modal-meta">Loot: ${data.stats.lootRows} filas · Cofre en ventana: ${data.stats.chestInWindow}/${data.stats.chestRows}</p>` +
+    (data.stats.filesSwapped
+      ? '<p class="loot-swap-note">ℹ️ Los archivos estaban al revés; se compararon automáticamente.</p>'
+      : '');
   box.appendChild(summary);
 
   if (!data.stats.pending) {

@@ -212,16 +212,53 @@ async function enrichMissingItem(entry) {
   };
 }
 
+function sniffFileFormat(text) {
+  const lines = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .filter((l) => l.trim());
+  if (lines.length < 2) return 'empty';
+  const sample = lines[1] || lines[0];
+  if (sample.includes('\t')) return 'loot';
+  if (sample.split(',').length >= 6) return 'chest';
+  return 'unknown';
+}
+
 /**
  * @param {string} lootCsv - log loot (TSV, MM/DD/YYYY)
  * @param {string} chestCsv - log cofre (CSV, DD/MM/YYYY)
  */
 async function compareLootFiles(lootCsv, chestCsv) {
-  const lootRows = parseLootCsv(lootCsv);
-  const chestRows = parseChestCsv(chestCsv);
+  let lootText = lootCsv;
+  let chestText = chestCsv;
+  let filesSwapped = false;
+
+  const lootSniff = sniffFileFormat(lootText);
+  const chestSniff = sniffFileFormat(chestText);
+
+  if (lootSniff === 'chest' && chestSniff === 'loot') {
+    lootText = chestCsv;
+    chestText = lootCsv;
+    filesSwapped = true;
+  }
+
+  let lootRows = parseLootCsv(lootText);
+  let chestRows = parseChestCsv(chestText);
+
+  if (!lootRows.length && sniffFileFormat(lootText) === 'chest') {
+    return {
+      ok: false,
+      error:
+        'El primer archivo parece ser del cofre (CSV con comas). Pon el log de loot de la pelea a la izquierda y el del cofre a la derecha.',
+    };
+  }
 
   if (!lootRows.length) {
-    return { ok: false, error: 'El archivo de loot está vacío o no se pudo leer.' };
+    return {
+      ok: false,
+      error:
+        'El archivo de loot está vacío o no se pudo leer. Debe ser el export de la pelea (tabulaciones, campos entre comillas).',
+    };
   }
 
   const times = lootRows.map((r) => r.date.getTime());
@@ -283,6 +320,7 @@ async function compareLootFiles(lootCsv, chestCsv) {
       players: players.length,
       pending: pendingCount,
       delivered: players.length - pendingCount,
+      filesSwapped,
     },
     players: players.map((p) => ({
       name: p.name,
