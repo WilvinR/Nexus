@@ -1,7 +1,7 @@
 /**
  * Comparador loot pelea vs cofre — lógica compartida web + Discord.
  */
-const LOOT_COMPARATOR_VERSION = 6;
+const LOOT_COMPARATOR_VERSION = 7;
 const ITEMS_JSON =
   'https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.json';
 const RENDER_BASE = 'https://render.albiononline.com/v1/item/';
@@ -71,6 +71,7 @@ function parseCombatLootCsv(text) {
   const col = (name) => header.indexOf(name);
   const iDate = col('timestamp_utc');
   const iPlayer = col('looted_by__name');
+  const iGuild = col('looted_by__guild');
   const iItemId = col('item_id');
   const iItemName = col('item_name');
   const iQty = col('quantity');
@@ -87,6 +88,7 @@ function parseCombatLootCsv(text) {
     rows.push({
       date,
       player: cols[iPlayer],
+      guild: iGuild >= 0 ? cols[iGuild] || null : null,
       object: cols[iItemName],
       enchantment: enchantMatch ? Number(enchantMatch[1]) : 0,
       quality: 1,
@@ -437,11 +439,23 @@ async function compareLootFiles(lootCsv, chestCsv) {
   await enrichChestAgg(chestAgg);
   const chestLookup = buildChestDepositLookup(chestAgg);
 
+  const playerGuilds = new Map();
+  for (const row of lootRows) {
+    if (row.player && row.guild && !playerGuilds.has(row.player)) {
+      playerGuilds.set(row.player, row.guild);
+    }
+  }
+
   const playerMap = new Map();
 
   for (const [, entry] of lootAgg) {
     if (!playerMap.has(entry.player)) {
-      playerMap.set(entry.player, { name: entry.player, missing: [], ok: true });
+      playerMap.set(entry.player, {
+        name: entry.player,
+        guild: playerGuilds.get(entry.player) || null,
+        missing: [],
+        ok: true,
+      });
     }
     const deposited = getDepositedAmount(entry, chestLookup);
     const missing = entry.total - deposited;
@@ -505,6 +519,7 @@ async function compareLootFiles(lootCsv, chestCsv) {
     },
     players: players.map((p) => ({
       name: p.name,
+      guild: p.guild || null,
       status: p.ok ? 'ok' : 'pending',
       missing: p.missing,
     })),

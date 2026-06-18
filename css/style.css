@@ -3473,10 +3473,17 @@ nav.site-nav-dash {
   word-break: break-all;
 }
 
-.loot-upload-hint {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.3;
+.loot-upload-title {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.02em;
+}
+
+.loot-player-guild {
+  font-weight: 600;
+  color: var(--accent-bright);
 }
 
 .loot-compare-status {

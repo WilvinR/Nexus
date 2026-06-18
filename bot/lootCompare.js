@@ -83,9 +83,10 @@ async function runCompare(ix, lootText, chestText) {
 
   const pending = players.filter((p) => p.status === 'pending');
   for (const p of pending.slice(0, 8)) {
+    const guildLabel = p.guild ? ` · ${p.guild}` : '';
     const embed = new EmbedBuilder()
       .setColor(0xe74c3c)
-      .setTitle(`⚠️ ${p.name}`)
+      .setTitle(`⚠️ ${p.name}${guildLabel}`)
       .setDescription(`${p.missing.length} ítem(s) sin depositar en el cofre.`);
     embeds.push(embed);
 

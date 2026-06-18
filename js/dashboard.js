@@ -893,6 +893,14 @@ function bindLootFileInput(inputId, nameId, setter) {
   });
 }
 
+function lootPlayerLabel(p) {
+  const name = escapeHtml(p.name);
+  if (p.guild) {
+    return `${name} <span class="loot-player-guild">· ${escapeHtml(p.guild)}</span>`;
+  }
+  return name;
+}
+
 function renderLootResults(data) {
   const box = document.getElementById('loot-compare-results');
   if (!box) return;
@@ -901,20 +909,7 @@ function renderLootResults(data) {
   const summary = document.createElement('div');
   summary.className = 'loot-summary';
   summary.innerHTML =
-    `<p class="loot-window"><strong>Ventana de pelea:</strong> ${escapeHtml(data.window.fromLabel)} → ${escapeHtml(data.window.toLabel)}</p>` +
-    `<p class="loot-stats">Jugadores: <strong>${data.stats.players}</strong> · Pendientes: <strong>${data.stats.pending}</strong> · ✅ Entregado: <strong>${data.stats.delivered}</strong></p>` +
-    `<p class="modal-meta">Loot: ${data.stats.lootRows} filas · Cofre en ventana: ${data.stats.chestInWindow}/${data.stats.chestRows}` +
-    (data.stats.comparatorVersion ? ` · motor v${data.stats.comparatorVersion}` : '') +
-    `</p>` +
-    (data.stats.filesSwapped
-      ? '<p class="loot-swap-note">ℹ️ Los archivos estaban al revés; se compararon automáticamente.</p>'
-      : '') +
-    (data.stats.windowNote
-      ? `<p class="loot-swap-note">ℹ️ ${escapeHtml(data.stats.windowNote)}</p>`
-      : '') +
-    (data.stats.warning
-      ? `<p class="loot-warn-note">⚠️ ${escapeHtml(data.stats.warning)}</p>`
-      : '');
+    `<p class="loot-stats">Jugadores: <strong>${data.stats.players}</strong> · Pendientes: <strong>${data.stats.pending}</strong> · ✅ Entregado: <strong>${data.stats.delivered}</strong></p>`;
   box.appendChild(summary);
 
   if (!data.stats.pending) {
@@ -930,9 +925,9 @@ function renderLootResults(data) {
     card.className = 'loot-player-card';
     if (p.status === 'ok') {
       card.classList.add('loot-player-ok');
-      card.innerHTML = `<h4 class="loot-player-name">✅ ${escapeHtml(p.name)}</h4><p class="loot-player-status">Todo entregado</p>`;
+      card.innerHTML = `<h4 class="loot-player-name">✅ ${lootPlayerLabel(p)}</h4><p class="loot-player-status">Todo entregado</p>`;
     } else {
-      card.innerHTML = `<h4 class="loot-player-name">⚠️ ${escapeHtml(p.name)}</h4>`;
+      card.innerHTML = `<h4 class="loot-player-name">⚠️ ${lootPlayerLabel(p)}</h4>`;
       const grid = document.createElement('div');
       grid.className = 'loot-item-grid';
       for (const it of p.missing) {
