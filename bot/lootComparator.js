@@ -1,6 +1,7 @@
 /**
  * Comparador loot pelea vs cofre — lógica compartida web + Discord.
  */
+const LOOT_COMPARATOR_VERSION = 6;
 const ITEMS_JSON =
   'https://raw.githubusercontent.com/ao-data/ao-bin-dumps/master/formatted/items.json';
 const RENDER_BASE = 'https://render.albiononline.com/v1/item/';
@@ -339,6 +340,23 @@ function parseLootRows(text, type) {
   return [];
 }
 
+function parseLootFromSlot(text) {
+  const combat = parseCombatLootCsv(text);
+  if (combat.length) return { rows: combat, type: 'combat' };
+  const ingame = parseLootCsv(text);
+  if (ingame.length) return { rows: ingame, type: 'ingame_tsv' };
+  return { rows: [], type: 'unknown' };
+}
+
+function parseChestFromSlot(text) {
+  if (parseCombatLootCsv(text).length) return { rows: [], type: 'combat_in_chest_slot' };
+  const tsv = parseLootCsv(text);
+  if (tsv.length) return { rows: tsv, type: 'ingame_tsv' };
+  const csv = parseChestCsv(text);
+  if (csv.length) return { rows: csv, type: 'chest_csv' };
+  return { rows: [], type: 'unknown' };
+}
+
 function sniffFileFormat(text) {
   const kind = classifyFile(text);
   if (kind === 'combat' || kind === 'ingame_tsv') return 'loot';
@@ -351,65 +369,44 @@ function swapFiles(a, b) {
 }
 
 /**
- * @param {string} lootCsv - archivo del slot loot (combat UTC o log in-game)
- * @param {string} chestCsv - archivo del slot cofre (CSV comas o TSV in-game)
+ * @param {string} lootCsv - casilla izquierda: loot de combate
+ * @param {string} chestCsv - casilla derecha: cofre del gremio
  */
 async function compareLootFiles(lootCsv, chestCsv) {
-  let lootText = lootCsv;
-  let chestText = chestCsv;
+  let lootText = String(lootCsv || '');
+  let chestText = String(chestCsv || '');
   let filesSwapped = false;
 
-  let lootType = classifyFile(lootText);
-  let chestType = classifyFile(chestText);
+  const combatInLoot = parseCombatLootCsv(lootText);
+  const combatInChest = parseCombatLootCsv(chestText);
 
-  if (lootType !== 'combat' && chestType === 'combat') {
+  if (!combatInLoot.length && combatInChest.length) {
     [lootText, chestText] = swapFiles(lootText, chestText);
-    [lootType, chestType] = [chestType, lootType];
     filesSwapped = true;
   }
 
-  if (lootType === 'chest_csv' && chestType !== 'chest_csv') {
-    [lootText, chestText] = swapFiles(lootText, chestText);
-    [lootType, chestType] = [chestType, lootType];
-    filesSwapped = true;
-  }
+  const lootFinal = parseLootFromSlot(lootText);
+  const chestFinal = parseChestFromSlot(chestText);
 
-  lootType = classifyFile(lootText);
-  chestType = classifyFile(chestText);
-
-  // Mismo formato in-game (tabulaciones): la casilla izquierda = loot, derecha = cofre.
-  if (lootType === 'ingame_tsv' && chestType === 'ingame_tsv') {
-    // confiar en el slot del usuario
-  } else if (lootType === 'ingame_tsv' && chestType === 'combat') {
-    [lootText, chestText] = swapFiles(lootText, chestText);
-    [lootType, chestType] = [chestType, lootType];
-    filesSwapped = true;
-  }
-
-  if (lootType !== 'combat' && lootType !== 'ingame_tsv') {
+  if (!lootFinal.rows.length) {
     return {
       ok: false,
       error:
-        'No se detectó loot de combate. Usa el export UTC (punto y coma) o el log in-game de la pelea.',
+        'No se pudo leer el loot de combate. Usa el export UTC (punto y coma) o el log in-game (tabulaciones) en la casilla izquierda.',
     };
   }
 
-  if (chestType !== 'chest_csv' && chestType !== 'ingame_tsv') {
+  if (!chestFinal.rows.length) {
     return {
       ok: false,
-      error: 'No se detectó el log del cofre. Usa CSV con comas o el export in-game (tabulaciones).',
+      error:
+        'No se pudo leer el cofre. Usa el export del banco del gremio (tabulaciones o CSV con comas) en la casilla derecha.',
     };
   }
 
-  const lootRows = parseLootRows(lootText, lootType);
-  const chestRows = parseChestRows(chestText, chestType);
-
-  if (!lootRows.length) {
-    return {
-      ok: false,
-      error: 'El archivo de loot está vacío o no se pudo leer.',
-    };
-  }
+  const lootRows = lootFinal.rows;
+  const chestRows = chestFinal.rows;
+  const lootType = lootFinal.type;
 
   const times = lootRows.map((r) => r.date.getTime());
   let windowFrom = new Date(Math.min(...times) - CHEST_GRACE_BEFORE_MS);
@@ -494,6 +491,7 @@ async function compareLootFiles(lootCsv, chestCsv) {
       toLabel: windowTo.toLocaleString('es-ES'),
     },
     stats: {
+      comparatorVersion: LOOT_COMPARATOR_VERSION,
       lootRows: lootRows.length,
       chestRows: chestRows.length,
       chestInWindow: chestInWindow.length,
@@ -514,6 +512,7 @@ async function compareLootFiles(lootCsv, chestCsv) {
 }
 
 module.exports = {
+  LOOT_COMPARATOR_VERSION,
   compareLootFiles,
   parseLootCsv,
   parseChestCsv,
