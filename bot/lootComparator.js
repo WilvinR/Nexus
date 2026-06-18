@@ -268,88 +268,89 @@ function classifyFile(text) {
   const sample = lines[1] || '';
 
   if (header.includes('timestamp_utc') && header.includes('item_id')) return 'combat';
-  if (sample.includes('\t') || header.includes('\t')) return 'ingame_loot';
+  if (sample.includes('\t') || header.includes('\t')) return 'ingame_tsv';
   if (header.includes('fecha') && header.includes('jugador') && header.includes('objeto')) {
-    return 'chest';
+    return 'chest_csv';
   }
-  if (sample.includes('\t')) return 'ingame_loot';
-  if (sample.split(',').length >= 6) return 'chest';
+  if (sample.split(',').length >= 6) return 'chest_csv';
   return 'unknown';
+}
+
+function parseChestRows(text, type) {
+  if (type === 'chest_csv') return parseChestCsv(text);
+  if (type === 'ingame_tsv') return parseLootCsv(text);
+  return [];
 }
 
 function parseLootRows(text, type) {
   if (type === 'combat') return parseCombatLootCsv(text);
-  if (type === 'ingame_loot') return parseLootCsv(text);
+  if (type === 'ingame_tsv') return parseLootCsv(text);
   return [];
 }
 
 function sniffFileFormat(text) {
   const kind = classifyFile(text);
-  if (kind === 'combat' || kind === 'ingame_loot') return 'loot';
-  if (kind === 'chest') return 'chest';
+  if (kind === 'combat' || kind === 'ingame_tsv') return 'loot';
+  if (kind === 'chest_csv') return 'chest';
   return 'unknown';
 }
 
+function swapFiles(a, b) {
+  return [b, a];
+}
+
 /**
- * @param {string} lootCsv - log loot (combat UTC, TSV in-game, etc.)
- * @param {string} chestCsv - log cofre (CSV in-game)
+ * @param {string} lootCsv - archivo del slot loot (combat UTC o log in-game)
+ * @param {string} chestCsv - archivo del slot cofre (CSV comas o TSV in-game)
  */
 async function compareLootFiles(lootCsv, chestCsv) {
   let lootText = lootCsv;
   let chestText = chestCsv;
   let filesSwapped = false;
 
-  const typeA = classifyFile(lootText);
-  const typeB = classifyFile(chestText);
-  const lootKinds = new Set(['combat', 'ingame_loot']);
-  const chestKinds = new Set(['chest']);
+  let lootType = classifyFile(lootText);
+  let chestType = classifyFile(chestText);
 
-  if (lootKinds.has(typeA) && chestKinds.has(typeB)) {
-    // orden correcto
-  } else if (lootKinds.has(typeB) && chestKinds.has(typeA)) {
-    lootText = chestCsv;
-    chestText = lootCsv;
-    filesSwapped = true;
-  } else if (lootKinds.has(typeA) && lootKinds.has(typeB)) {
-    return {
-      ok: false,
-      error: 'Ambos archivos parecen ser de loot. Sube el log de combate y el del cofre del gremio.',
-    };
-  } else if (chestKinds.has(typeA) && chestKinds.has(typeB)) {
-    return {
-      ok: false,
-      error: 'Ambos archivos parecen ser del cofre. Sube el log de loot de la pelea y el del cofre.',
-    };
-  } else {
-    const lootSniff = sniffFileFormat(lootText);
-    const chestSniff = sniffFileFormat(chestText);
-    if (lootSniff === 'chest' && chestSniff === 'loot') {
-      lootText = chestCsv;
-      chestText = lootCsv;
-      filesSwapped = true;
-    }
-  }
-
-  const lootType = classifyFile(lootText);
-  const chestType = classifyFile(chestText);
-  let lootRows = parseLootRows(lootText, lootType);
-  let chestRows = chestType === 'chest' ? parseChestCsv(chestText) : [];
-
-  if (!lootRows.length && lootKinds.has(classifyFile(chestText))) {
-    lootText = chestCsv;
-    chestText = lootCsv;
-    lootRows = parseLootRows(lootText, classifyFile(lootText));
-    chestRows = classifyFile(chestText) === 'chest' ? parseChestCsv(chestText) : [];
+  if (lootType !== 'combat' && chestType === 'combat') {
+    [lootText, chestText] = swapFiles(lootText, chestText);
+    [lootType, chestType] = [chestType, lootType];
     filesSwapped = true;
   }
 
-  if (!lootRows.length && classifyFile(lootText) === 'chest') {
+  if (lootType === 'chest_csv' && chestType !== 'chest_csv') {
+    [lootText, chestText] = swapFiles(lootText, chestText);
+    [lootType, chestType] = [chestType, lootType];
+    filesSwapped = true;
+  }
+
+  lootType = classifyFile(lootText);
+  chestType = classifyFile(chestText);
+
+  if (lootType === 'ingame_tsv' && chestType === 'ingame_tsv') {
     return {
       ok: false,
       error:
-        'No se detectó un archivo de loot de combate. Usa el export UTC (punto y coma) o el log in-game (tabulaciones).',
+        'Ambos archivos tienen formato in-game (tabulaciones). El loot de combate debe ser el export UTC (punto y coma).',
     };
   }
+
+  if (lootType !== 'combat' && lootType !== 'ingame_tsv') {
+    return {
+      ok: false,
+      error:
+        'No se detectó loot de combate. Usa el export UTC (punto y coma) o el log in-game de la pelea.',
+    };
+  }
+
+  if (chestType !== 'chest_csv' && chestType !== 'ingame_tsv') {
+    return {
+      ok: false,
+      error: 'No se detectó el log del cofre. Usa CSV con comas o el export in-game (tabulaciones).',
+    };
+  }
+
+  const lootRows = parseLootRows(lootText, lootType);
+  const chestRows = parseChestRows(chestText, chestType);
 
   if (!lootRows.length) {
     return {
