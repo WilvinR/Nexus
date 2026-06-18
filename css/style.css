@@ -3473,6 +3473,12 @@ nav.site-nav-dash {
   word-break: break-all;
 }
 
+.loot-upload-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.3;
+}
+
 .loot-compare-status {
   margin: 12px 0;
   color: var(--accent-bright);

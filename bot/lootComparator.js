@@ -51,6 +51,51 @@ function unquoteField(s) {
   return v.trim();
 }
 
+function parseIsoDate(str) {
+  const d = new Date(String(str || '').trim());
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function splitCsvLine(line, delimiter) {
+  return String(line || '').split(delimiter).map((c) => c.trim());
+}
+
+function parseCombatLootCsv(text) {
+  const lines = String(text || '')
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .filter((l) => l.trim());
+  if (lines.length < 2) return [];
+  const header = splitCsvLine(lines[0], ';').map((h) => h.toLowerCase());
+  const col = (name) => header.indexOf(name);
+  const iDate = col('timestamp_utc');
+  const iPlayer = col('looted_by__name');
+  const iItemId = col('item_id');
+  const iItemName = col('item_name');
+  const iQty = col('quantity');
+  if (iDate < 0 || iPlayer < 0 || iItemId < 0 || iItemName < 0 || iQty < 0) return [];
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = splitCsvLine(lines[i], ';');
+    if (cols.length < header.length) continue;
+    const date = parseIsoDate(cols[iDate]);
+    if (!date) continue;
+    const rawItemId = cols[iItemId];
+    const enchantMatch = rawItemId.match(/@(\d+)$/);
+    rows.push({
+      date,
+      player: cols[iPlayer],
+      object: cols[iItemName],
+      enchantment: enchantMatch ? Number(enchantMatch[1]) : 0,
+      quality: 1,
+      quantity: Number(cols[iQty]) || 0,
+      rawItemId,
+    });
+  }
+  return rows;
+}
+
 function parseLootCsv(text) {
   const lines = String(text || '')
     .replace(/^\uFEFF/, '')
@@ -117,6 +162,7 @@ function aggregatePositive(rows) {
         enchantment: row.enchantment,
         quality: row.quality,
         total: row.quantity,
+        rawItemId: row.rawItemId || null,
       });
     }
   }
@@ -199,7 +245,7 @@ function itemImageUrl(itemId, quality = 1, size = 80) {
 }
 
 async function enrichMissingItem(entry) {
-  const itemId = await resolveItemId(entry.object, entry.enchantment);
+  const itemId = entry.rawItemId || (await resolveItemId(entry.object, entry.enchantment));
   return {
     object: entry.object,
     enchantment: entry.enchantment,
@@ -212,52 +258,103 @@ async function enrichMissingItem(entry) {
   };
 }
 
-function sniffFileFormat(text) {
+function classifyFile(text) {
   const lines = String(text || '')
     .replace(/^\uFEFF/, '')
     .split(/\r?\n/)
     .filter((l) => l.trim());
   if (lines.length < 2) return 'empty';
-  const sample = lines[1] || lines[0];
-  if (sample.includes('\t')) return 'loot';
+  const header = lines[0].toLowerCase();
+  const sample = lines[1] || '';
+
+  if (header.includes('timestamp_utc') && header.includes('item_id')) return 'combat';
+  if (sample.includes('\t') || header.includes('\t')) return 'ingame_loot';
+  if (header.includes('fecha') && header.includes('jugador') && header.includes('objeto')) {
+    return 'chest';
+  }
+  if (sample.includes('\t')) return 'ingame_loot';
   if (sample.split(',').length >= 6) return 'chest';
   return 'unknown';
 }
 
+function parseLootRows(text, type) {
+  if (type === 'combat') return parseCombatLootCsv(text);
+  if (type === 'ingame_loot') return parseLootCsv(text);
+  return [];
+}
+
+function sniffFileFormat(text) {
+  const kind = classifyFile(text);
+  if (kind === 'combat' || kind === 'ingame_loot') return 'loot';
+  if (kind === 'chest') return 'chest';
+  return 'unknown';
+}
+
 /**
- * @param {string} lootCsv - log loot (TSV, MM/DD/YYYY)
- * @param {string} chestCsv - log cofre (CSV, DD/MM/YYYY)
+ * @param {string} lootCsv - log loot (combat UTC, TSV in-game, etc.)
+ * @param {string} chestCsv - log cofre (CSV in-game)
  */
 async function compareLootFiles(lootCsv, chestCsv) {
   let lootText = lootCsv;
   let chestText = chestCsv;
   let filesSwapped = false;
 
-  const lootSniff = sniffFileFormat(lootText);
-  const chestSniff = sniffFileFormat(chestText);
+  const typeA = classifyFile(lootText);
+  const typeB = classifyFile(chestText);
+  const lootKinds = new Set(['combat', 'ingame_loot']);
+  const chestKinds = new Set(['chest']);
 
-  if (lootSniff === 'chest' && chestSniff === 'loot') {
+  if (lootKinds.has(typeA) && chestKinds.has(typeB)) {
+    // orden correcto
+  } else if (lootKinds.has(typeB) && chestKinds.has(typeA)) {
     lootText = chestCsv;
     chestText = lootCsv;
     filesSwapped = true;
+  } else if (lootKinds.has(typeA) && lootKinds.has(typeB)) {
+    return {
+      ok: false,
+      error: 'Ambos archivos parecen ser de loot. Sube el log de combate y el del cofre del gremio.',
+    };
+  } else if (chestKinds.has(typeA) && chestKinds.has(typeB)) {
+    return {
+      ok: false,
+      error: 'Ambos archivos parecen ser del cofre. Sube el log de loot de la pelea y el del cofre.',
+    };
+  } else {
+    const lootSniff = sniffFileFormat(lootText);
+    const chestSniff = sniffFileFormat(chestText);
+    if (lootSniff === 'chest' && chestSniff === 'loot') {
+      lootText = chestCsv;
+      chestText = lootCsv;
+      filesSwapped = true;
+    }
   }
 
-  let lootRows = parseLootCsv(lootText);
-  let chestRows = parseChestCsv(chestText);
+  const lootType = classifyFile(lootText);
+  const chestType = classifyFile(chestText);
+  let lootRows = parseLootRows(lootText, lootType);
+  let chestRows = chestType === 'chest' ? parseChestCsv(chestText) : [];
 
-  if (!lootRows.length && sniffFileFormat(lootText) === 'chest') {
+  if (!lootRows.length && lootKinds.has(classifyFile(chestText))) {
+    lootText = chestCsv;
+    chestText = lootCsv;
+    lootRows = parseLootRows(lootText, classifyFile(lootText));
+    chestRows = classifyFile(chestText) === 'chest' ? parseChestCsv(chestText) : [];
+    filesSwapped = true;
+  }
+
+  if (!lootRows.length && classifyFile(lootText) === 'chest') {
     return {
       ok: false,
       error:
-        'El primer archivo parece ser del cofre (CSV con comas). Pon el log de loot de la pelea a la izquierda y el del cofre a la derecha.',
+        'No se detectó un archivo de loot de combate. Usa el export UTC (punto y coma) o el log in-game (tabulaciones).',
     };
   }
 
   if (!lootRows.length) {
     return {
       ok: false,
-      error:
-        'El archivo de loot está vacío o no se pudo leer. Debe ser el export de la pelea (tabulaciones, campos entre comillas).',
+      error: 'El archivo de loot está vacío o no se pudo leer.',
     };
   }
 
@@ -292,6 +389,7 @@ async function compareLootFiles(lootCsv, chestCsv) {
         looted: entry.total,
         deposited,
         missing,
+        rawItemId: entry.rawItemId || null,
       });
     }
   }
@@ -334,6 +432,8 @@ module.exports = {
   compareLootFiles,
   parseLootCsv,
   parseChestCsv,
+  parseCombatLootCsv,
+  classifyFile,
   itemImageUrl,
   resolveItemId,
 };

@@ -68,15 +68,17 @@
       <section id="view-loot" class="dash-extra-view hidden">
         <div class="modal-section">
           <h3>Comparador de loot</h3>
-          <p class="modal-meta">Compara el log de loot de una pelea con los movimientos del cofre del gremio. Detecta qué jugador recogió ítems pero no los depositó en la ventana de la pelea.</p>
+          <p class="modal-meta">Sube el loot de combate y el historial del cofre. El tipo de cada archivo se detecta solo aunque los pongas al revés.</p>
           <div class="loot-upload-grid">
             <label class="form-label loot-upload-box">
-              <span>Log de loot — pelea (tabulaciones, comillas)</span>
+              <span>Loot de combate</span>
+              <small class="loot-upload-hint">Export UTC (punto y coma) o log in-game (tabulaciones)</small>
               <input type="file" id="loot-file-loot" accept=".csv,.tsv,.txt" class="loot-file-input">
               <span class="loot-file-name" id="loot-file-loot-name">Ningún archivo</span>
             </label>
             <label class="form-label loot-upload-box">
-              <span>Log del cofre — gremio (comas, sin comillas)</span>
+              <span>Cofre del gremio</span>
+              <small class="loot-upload-hint">CSV con comas, sin comillas</small>
               <input type="file" id="loot-file-chest" accept=".csv,.txt" class="loot-file-input">
               <span class="loot-file-name" id="loot-file-chest-name">Ningún archivo</span>
             </label>
