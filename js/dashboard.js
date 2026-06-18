@@ -906,6 +906,12 @@ function renderLootResults(data) {
     `<p class="modal-meta">Loot: ${data.stats.lootRows} filas · Cofre en ventana: ${data.stats.chestInWindow}/${data.stats.chestRows}</p>` +
     (data.stats.filesSwapped
       ? '<p class="loot-swap-note">ℹ️ Los archivos estaban al revés; se compararon automáticamente.</p>'
+      : '') +
+    (data.stats.windowNote
+      ? `<p class="loot-swap-note">ℹ️ ${escapeHtml(data.stats.windowNote)}</p>`
+      : '') +
+    (data.stats.warning
+      ? `<p class="loot-warn-note">⚠️ ${escapeHtml(data.stats.warning)}</p>`
       : '');
   box.appendChild(summary);
 

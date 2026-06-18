@@ -144,6 +144,56 @@ function parseChestCsv(text) {
   return rows;
 }
 
+const CHEST_GRACE_BEFORE_MS = 30 * 60 * 1000;
+const CHEST_GRACE_AFTER_MS = 6 * 60 * 60 * 1000;
+
+function fileTimeSpan(rows) {
+  if (!rows.length) return null;
+  const times = rows.map((r) => r.date.getTime());
+  return { from: Math.min(...times), to: Math.max(...times) };
+}
+
+function filterChestInWindow(chestRows, windowFrom, windowTo) {
+  const from = windowFrom.getTime();
+  const to = windowTo.getTime();
+  return chestRows.filter((r) => {
+    const t = r.date.getTime();
+    return t >= from && t <= to;
+  });
+}
+
+function buildChestDepositLookup(chestAgg) {
+  const byName = chestAgg;
+  const byItemId = new Map();
+  for (const [, entry] of chestAgg) {
+    if (!entry.resolvedItemId) continue;
+    const idKey = `${entry.player}|${entry.resolvedItemId}|${entry.quality}`;
+    const hit = byItemId.get(idKey);
+    if (hit) hit.total += entry.total;
+    else byItemId.set(idKey, { ...entry });
+  }
+  return { byName, byItemId };
+}
+
+function getDepositedAmount(entry, chestLookup) {
+  const nameKey = itemKey(entry);
+  let deposited = chestLookup.byName.get(nameKey)?.total || 0;
+  if (deposited > 0) return deposited;
+  if (entry.rawItemId) {
+    const idKey = `${entry.player}|${entry.rawItemId}|${entry.quality}`;
+    deposited = chestLookup.byItemId.get(idKey)?.total || 0;
+  }
+  return deposited;
+}
+
+async function enrichChestAgg(chestAgg) {
+  for (const [, entry] of chestAgg) {
+    entry.resolvedItemId =
+      entry.rawItemId || (await resolveItemId(entry.object, entry.enchantment));
+  }
+  return chestAgg;
+}
+
 function itemKey(row) {
   return `${row.player}|${row.object}|${row.enchantment}|${row.quality}`;
 }
@@ -360,16 +410,33 @@ async function compareLootFiles(lootCsv, chestCsv) {
   }
 
   const times = lootRows.map((r) => r.date.getTime());
-  const windowFrom = new Date(Math.min(...times));
-  const windowTo = new Date(Math.max(...times));
+  let windowFrom = new Date(Math.min(...times) - CHEST_GRACE_BEFORE_MS);
+  let windowTo = new Date(Math.max(...times) + CHEST_GRACE_AFTER_MS);
 
-  const chestInWindow = chestRows.filter((r) => {
-    const t = r.date.getTime();
-    return t >= windowFrom.getTime() && t <= windowTo.getTime();
-  });
+  let chestInWindow = filterChestInWindow(chestRows, windowFrom, windowTo);
+  let windowNote = null;
+
+  if (!chestInWindow.length && chestRows.length > 0) {
+    const lootSpan = fileTimeSpan(lootRows);
+    const chestSpan = fileTimeSpan(chestRows);
+    if (lootSpan && chestSpan) {
+      const unionFrom = new Date(Math.min(lootSpan.from, chestSpan.from) - CHEST_GRACE_BEFORE_MS);
+      const unionTo = new Date(Math.max(lootSpan.to, chestSpan.to) + CHEST_GRACE_AFTER_MS);
+      const unionChest = filterChestInWindow(chestRows, unionFrom, unionTo);
+      if (unionChest.length > 0) {
+        windowFrom = unionFrom;
+        windowTo = unionTo;
+        chestInWindow = unionChest;
+        windowNote =
+          'Las fechas de los archivos no coincidían; se amplió la ventana para incluir el cofre de la pelea.';
+      }
+    }
+  }
 
   const lootAgg = aggregatePositive(lootRows);
   const chestAgg = aggregatePositive(chestInWindow);
+  await enrichChestAgg(chestAgg);
+  const chestLookup = buildChestDepositLookup(chestAgg);
 
   const playerMap = new Map();
 
@@ -377,8 +444,7 @@ async function compareLootFiles(lootCsv, chestCsv) {
     if (!playerMap.has(entry.player)) {
       playerMap.set(entry.player, { name: entry.player, missing: [], ok: true });
     }
-    const chestKey = itemKey(entry);
-    const deposited = chestAgg.get(chestKey)?.total || 0;
+    const deposited = getDepositedAmount(entry, chestLookup);
     const missing = entry.total - deposited;
     if (missing > 0) {
       const p = playerMap.get(entry.player);
@@ -403,6 +469,19 @@ async function compareLootFiles(lootCsv, chestCsv) {
   }
 
   const pendingCount = players.filter((p) => !p.ok).length;
+  const chestDepositsInWindow = chestInWindow.filter((r) => r.quantity > 0).length;
+
+  let warning = null;
+  if (!chestDepositsInWindow && chestRows.some((r) => r.quantity > 0)) {
+    warning =
+      'No hubo depósitos en el cofre durante la ventana de la pelea. Todo lo looteado aparece como pendiente.';
+  } else if (!chestInWindow.length && chestRows.length > 0 && !windowNote) {
+    warning =
+      'El cofre no tiene movimientos en la ventana de la pelea. Verifica que ambos archivos sean de la misma fight.';
+  } else if (lootType === 'combat' && lootRows.length < 15 && chestDepositsInWindow > 0) {
+    warning =
+      `El export de combate solo tiene ${lootRows.length} fila(s). Si la pelea tuvo más loot, exporta el log completo (UTC o in-game).`;
+  }
 
   return {
     ok: true,
@@ -416,10 +495,13 @@ async function compareLootFiles(lootCsv, chestCsv) {
       lootRows: lootRows.length,
       chestRows: chestRows.length,
       chestInWindow: chestInWindow.length,
+      chestDepositsInWindow,
       players: players.length,
       pending: pendingCount,
       delivered: players.length - pendingCount,
       filesSwapped,
+      windowNote,
+      warning,
     },
     players: players.map((p) => ({
       name: p.name,
