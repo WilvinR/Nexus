@@ -51,8 +51,8 @@ async function buildPlayerStrip(items) {
   return canvas.toBuffer('image/png');
 }
 
-function formatWindow(window) {
-  return `${window.fromLabel} → ${window.toLabel}`;
+function formatPlayerLabel(p) {
+  return p.guild ? `${p.name} · ${p.guild}` : p.name;
 }
 
 async function runCompare(ix, lootText, chestText) {
@@ -62,15 +62,13 @@ async function runCompare(ix, lootText, chestText) {
     return;
   }
 
-  const { stats, window, players } = result;
+  const { stats, players } = result;
   const summary = new EmbedBuilder()
     .setColor(stats.pending ? 0xe74c3c : 0x2ecc71)
     .setTitle('📋 Comparador de loot')
     .setDescription(
-      `Ventana de pelea:\n**${formatWindow(window)}**\n\n` +
-        `Jugadores: **${stats.players}** · Pendientes: **${stats.pending}** · ✅ Entregado: **${stats.delivered}**`,
-    )
-    .setFooter({ text: `Loot: ${stats.lootRows} filas · Cofre en ventana: ${stats.chestInWindow}/${stats.chestRows}` });
+      `Jugadores: **${stats.players}** · Pendientes: **${stats.pending}** · ✅ Entregado: **${stats.delivered}**`,
+    );
 
   const embeds = [summary];
   const files = [];
@@ -83,10 +81,9 @@ async function runCompare(ix, lootText, chestText) {
 
   const pending = players.filter((p) => p.status === 'pending');
   for (const p of pending.slice(0, 8)) {
-    const guildLabel = p.guild ? ` · ${p.guild}` : '';
     const embed = new EmbedBuilder()
       .setColor(0xe74c3c)
-      .setTitle(`⚠️ ${p.name}${guildLabel}`)
+      .setTitle(`⚠️ ${formatPlayerLabel(p)}`)
       .setDescription(`${p.missing.length} ítem(s) sin depositar en el cofre.`);
     embeds.push(embed);
 
@@ -103,7 +100,7 @@ async function runCompare(ix, lootText, chestText) {
   if (okPlayers.length) {
     summary.addFields({
       name: '✅ Todo entregado',
-      value: okPlayers.map((p) => p.name).join(', ').slice(0, 1024),
+      value: okPlayers.map((p) => formatPlayerLabel(p)).join(', ').slice(0, 1024),
     });
   }
 
