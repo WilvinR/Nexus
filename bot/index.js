@@ -8,6 +8,8 @@ const {
   Events,
   ActivityType,
   Options,
+  EmbedBuilder,
+  AttachmentBuilder,
 } = require('discord.js');
 
 const logs = require('./logs');
@@ -363,21 +365,57 @@ client.on(Events.GuildCreate, async (g) => {
   }
 });
 
-function buildWelcomeDmText() {
+const WELCOME_BANNER = 'nexus-welcome-banner.png';
+
+function buildWelcomeDmPayload() {
   const web = (process.env.WEB_URL || 'https://nexus-two-swart.vercel.app').replace(/\/$/, '');
   const invite = buildInviteUrl();
-  return (
-    '👋 Hola, soy **Nexus**.\n\n' +
-    'Soy un bot especializado en la gestión de gremios de **Albion Online**.\n\n' +
-    '**Funciones principales:**\n' +
-    '⚔️ Registro de kills y batallas\n' +
-    '📊 Estadísticas y seguimiento\n' +
-    '🛡️ Gestión de asistencia\n' +
-    '🏰 Herramientas para líderes de gremio\n' +
-    '🌐 Dashboard web\n\n' +
-    `🔗 [Invítame a tu servidor](${invite})\n` +
-    `🌐 [Visita nuestra página web](${web})`
-  );
+  const bannerPath = path.join(__dirname, 'assets', WELCOME_BANNER);
+
+  const embed = new EmbedBuilder()
+    .setColor(0x00d4ff)
+    .setTitle('👋 Hola, soy Nexus')
+    .setDescription(
+      '⚔️ Bot diseñado para la **gestión profesional de gremios de Albion Online**.\n\n' +
+        '**Conectamos Discord + Dashboard Web** para darte control total y actualizado de tu gremio.',
+    )
+    .addFields(
+      {
+        name: '🔥 Lo que puedes hacer con Nexus',
+        value:
+          '⚔️ **Killboard en tiempo real** — Notificaciones instantáneas con imágenes\n' +
+          '🏆 **Battle Reports** — Reportes automáticos de batallas importantes\n' +
+          '📋 **Registro Inteligente** — Validación automática con Albion + expulsión al salir\n' +
+          '💰 **BAL & Economía** — Balances, deudas, pagos y reequip\n' +
+          '📅 **Eventos** — Crea eventos con inscripciones fáciles\n' +
+          '🛡️ **Sanciones** — Strikes y multas con registro completo\n' +
+          '📊 **Estadísticas** — Seguimiento de actividad de miembros\n' +
+          '🔄 **Loot Comparator** — Compara loot de pelea vs cofre del gremio\n' +
+          '🕒 **Reloj UTC** + herramientas diarias',
+        inline: false,
+      },
+      {
+        name: '\u200b',
+        value: '**Todo modular** → Activa solo las funciones que tu gremio necesita.',
+        inline: false,
+      },
+      {
+        name: '\u200b',
+        value:
+          `🌐 **Dashboard Web** → [Abrir Dashboard](${web})\n` +
+          `🔗 **Invitar Nexus** → [Añadir a otro servidor](${invite})`,
+        inline: false,
+      },
+    )
+    .setFooter({ text: '¡Listo para fortalecer tu gremio!' });
+
+  const files = [];
+  if (fs.existsSync(bannerPath)) {
+    embed.setImage(`attachment://${WELCOME_BANNER}`);
+    files.push(new AttachmentBuilder(bannerPath, { name: WELCOME_BANNER }));
+  }
+
+  return { embeds: [embed], files };
 }
 
 async function welcomeNewMember(member) {
@@ -388,7 +426,8 @@ async function welcomeNewMember(member) {
   if (row) return;
 
   try {
-    await member.user.send(buildWelcomeDmText());
+    const payload = buildWelcomeDmPayload();
+    await member.user.send(payload);
     getDb().prepare('INSERT INTO welcome_dm_sent (user_id, sent_at) VALUES (?, ?)').run(uid, Date.now());
     log.info(`Welcome DM enviado a ${member.user.tag} (${member.guild?.name || '?'})`);
   } catch (e) {
