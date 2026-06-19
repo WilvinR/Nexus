@@ -1200,6 +1200,11 @@ module.exports = {
       delete tpl.message_id;
       delete tpl.channel_id;
       delete tpl.expired;
+      if (tpl.roles) {
+        tpl.roles = Object.fromEntries(
+          Object.entries(tpl.roles).map(([key, data]) => [key, { ...data, users: [] }]),
+        );
+      }
       getDb()
         .prepare(`
           INSERT INTO evento_templates (template_id, guild_id, creator_id, template_name, data_json, created_at)
