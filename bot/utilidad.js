@@ -129,7 +129,7 @@ const CATEGORIES = {
     commands: [
       {
         name: '/configurar_autovoz',
-        desc: 'Configura categoría, roles y modo de nombre. Crea el hub ➕ Crear canal (Mod).',
+        desc: 'Configura categoría y modo de nombre. Roles opcionales: sin roles = público; con roles = privado (Mod).',
       },
       {
         name: 'Hub ➕ Crear canal',

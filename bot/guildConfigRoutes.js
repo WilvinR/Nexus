@@ -1179,9 +1179,6 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     if (!categoryId) {
       return res.status(400).json({ error: 'La categoría es obligatoria' });
     }
-    if (!allowedRoleIds.length) {
-      return res.status(400).json({ error: 'Selecciona al menos un rol' });
-    }
 
     const cat = ctx.guild.channels.cache.get(categoryId);
     if (!cat || cat.type !== ChannelType.GuildCategory) {

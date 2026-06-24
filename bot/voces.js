@@ -221,45 +221,66 @@ async function sendControlPanel(client, channel, ownerId, log) {
   }
 }
 
+function isPrivateVoces(allowedRoleIds) {
+  return Array.isArray(allowedRoleIds) && allowedRoleIds.length > 0;
+}
+
 function buildHubOverwrites(guild, allowedRoleIds) {
+  const privateMode = isPrivateVoces(allowedRoleIds);
   const overwrites = [
     {
       id: guild.id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
+      ...(privateMode
+        ? { deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] }
+        : { allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] }),
     },
   ];
-  for (const rid of allowedRoleIds) {
-    overwrites.push({
-      id: rid,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
-    });
+  if (privateMode) {
+    for (const rid of allowedRoleIds) {
+      overwrites.push({
+        id: rid,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
+      });
+    }
   }
   return overwrites;
 }
 
 function buildTempOverwrites(guild, ownerId, allowedRoleIds) {
+  const privateMode = isPrivateVoces(allowedRoleIds);
+  const ownerPerms = [
+    PermissionFlagsBits.ViewChannel,
+    PermissionFlagsBits.Connect,
+    PermissionFlagsBits.Speak,
+    PermissionFlagsBits.ManageChannels,
+    PermissionFlagsBits.MuteMembers,
+    PermissionFlagsBits.MoveMembers,
+  ];
   const overwrites = [
     {
       id: guild.id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect],
+      ...(privateMode
+        ? { deny: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect] }
+        : {
+            allow: [
+              PermissionFlagsBits.ViewChannel,
+              PermissionFlagsBits.Connect,
+              PermissionFlagsBits.Speak,
+            ],
+          }),
     },
     {
       id: gid(ownerId),
-      allow: [
-        PermissionFlagsBits.ViewChannel,
-        PermissionFlagsBits.Connect,
-        PermissionFlagsBits.Speak,
-        PermissionFlagsBits.ManageChannels,
-        PermissionFlagsBits.MuteMembers,
-        PermissionFlagsBits.MoveMembers,
-      ],
+      allow: ownerPerms,
     },
   ];
-  for (const rid of allowedRoleIds) {
-    overwrites.push({
-      id: rid,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak],
-    });
+  if (privateMode) {
+    for (const rid of allowedRoleIds) {
+      overwrites.push({
+        id: rid,
+        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.Connect, PermissionFlagsBits.Speak],
+      });
+    }
   }
   return overwrites;
 }
@@ -298,9 +319,8 @@ async function ensureHubChannel(client, getDb, guildId, log, { categoryId, allow
 }
 
 async function applyVocesSetup(client, getDb, guildId, log, opts) {
-  const { categoryId, namingMode, allowedRoleIds, enabled = true } = opts;
+  const { categoryId, namingMode, allowedRoleIds = [], enabled = true } = opts;
   if (!categoryId) throw new Error('La categoría es obligatoria');
-  if (!allowedRoleIds?.length) throw new Error('Selecciona al menos un rol');
 
   const prev = getConfig(getDb, guildId);
   const hubChannelId = await ensureHubChannel(client, getDb, guildId, log, {
@@ -666,7 +686,12 @@ const configurarAutovoz = new SlashCommandBuilder()
         { name: 'Por número secuencial', value: 'sequence' },
       ),
   )
-  .addRoleOption((o) => o.setName('rol').setDescription('Rol que puede usar el sistema').setRequired(true))
+  .addRoleOption((o) =>
+    o
+      .setName('rol')
+      .setDescription('Rol con acceso (opcional; sin roles = público)')
+      .setRequired(false),
+  )
   .addRoleOption((o) => o.setName('rol_2').setDescription('Rol adicional (opcional)'))
   .addRoleOption((o) => o.setName('rol_3').setDescription('Rol adicional (opcional)'))
   .addRoleOption((o) => o.setName('rol_4').setDescription('Rol adicional (opcional)'))
@@ -696,12 +721,15 @@ module.exports = {
           });
           const modeLabel =
             result.namingMode === 'sequence' ? 'Número secuencial' : 'Nombre del creador';
+          const accessLabel = isPrivateVoces(result.allowedRoleIds)
+            ? `Privado — ${result.allowedRoleIds.map((id) => `<@&${id}>`).join(', ')}`
+            : 'Público — cualquier miembro del servidor';
           await ix.editReply({
             content:
               `✅ **Auto voz** configurado\n` +
               `📁 Categoría: **${category.name}**\n` +
               `📝 Modo nombre: **${modeLabel}**\n` +
-              `👥 Roles: ${result.allowedRoleIds.map((id) => `<@&${id}>`).join(', ')}\n` +
+              `🔐 Acceso: ${accessLabel}\n` +
               `🔊 Hub: <#${result.hubChannelId}> (\`${HUB_NAME}\`)`,
           });
         } catch (e) {

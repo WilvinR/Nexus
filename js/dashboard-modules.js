@@ -1404,7 +1404,7 @@ function initModuleModals(deps) {
       const modeUser = cfg.namingMode !== 'sequence';
       const hubLine = cfg.hubChannelId
         ? `<p class="modal-meta">Hub activo: <strong>${escapeHtml(cfg.hubName || '➕ Crear canal')}</strong> · Salas activas: <strong>${cfg.activeTempChannels ?? 0}</strong></p>`
-        : '<p class="modal-meta">Sin configurar — elige categoría y roles, luego guarda.</p>';
+        : '<p class="modal-meta">Sin configurar — elige categoría (y roles si quieres modo privado), luego guarda.</p>';
 
       openModal(
         'Auto Voz',
@@ -1419,8 +1419,8 @@ function initModuleModals(deps) {
             </select>
           </label>
           <div class="modal-section">
-            <h3>Roles con acceso</h3>
-            <p class="modal-meta">Miembros con al menos uno de estos roles pueden crear salas.</p>
+            <h3>Roles con acceso (opcional)</h3>
+            <p class="modal-meta">Sin roles marcados: hub y salas <strong>públicas</strong> para todo el servidor. Con uno o más roles: solo esos roles ven y entran (privado).</p>
             ${roleCheckboxes(cfg.allowedRoleIds)}
           </div>
           <div class="form-actions">
@@ -1435,7 +1435,6 @@ function initModuleModals(deps) {
         const namingMode = document.getElementById('voces-mode')?.value || 'username';
         const allowedRoleIds = [...body.querySelectorAll('.voces-role-cb:checked')].map((el) => el.value);
         if (!categoryId) return alert('Elige una categoría.');
-        if (!allowedRoleIds.length) return alert('Marca al menos un rol.');
         const res = await api(`/api/guilds/${modalGuildId}/voces`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
