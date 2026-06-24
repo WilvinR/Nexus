@@ -1,5 +1,5 @@
 /* Configuración por módulo (modales) — requiere api() y escapeHtml del dashboard */
-const CONFIG_MODULES = new Set(['registro', 'kill', 'battle', 'logs', 'utilidad', 'sanciones', 'eventos']);
+const CONFIG_MODULES = new Set(['registro', 'kill', 'battle', 'logs', 'utilidad', 'sanciones', 'eventos', 'voces']);
 
 let modalGuildId = null;
   let channelsCache = [];
@@ -132,6 +132,7 @@ function initModuleModals(deps) {
     if (moduleId === 'utilidad') return openUtilidad();
     if (moduleId === 'sanciones') return openSanciones();
     if (moduleId === 'eventos') return openEventos();
+    if (moduleId === 'voces') return openVoces();
   };
 
   async function openRegistro() {
@@ -1375,6 +1376,99 @@ function initModuleModals(deps) {
         openEventos();
       } else alert((await res.json().catch(() => ({}))).error || 'Error');
     });
+  }
+
+  async function openVoces() {
+    await ensureCategories();
+    await ensureRoles();
+    const r = await api(`/api/guilds/${modalGuildId}/voces`);
+    if (!r.ok) return alert('No se pudo cargar auto voz');
+    const cfg = await r.json();
+
+    function roleCheckboxes(selectedIds) {
+      const set = new Set((selectedIds || []).map(String));
+      if (!rolesCache.length) {
+        return '<p class="modal-meta">No hay roles configurables.</p>';
+      }
+      return `<div class="voces-role-grid">${rolesCache
+        .map(
+          (role) => `<label class="voces-role-check">
+            <input type="checkbox" class="voces-role-cb" value="${escapeHtml(role.id)}" ${set.has(String(role.id)) ? 'checked' : ''}>
+            <span>${escapeHtml(role.name)}</span>
+          </label>`,
+        )
+        .join('')}</div>`;
+    }
+
+    function render() {
+      const modeUser = cfg.namingMode !== 'sequence';
+      const hubLine = cfg.hubChannelId
+        ? `<p class="modal-meta">Hub activo: <strong>${escapeHtml(cfg.hubName || '➕ Crear canal')}</strong> · Salas activas: <strong>${cfg.activeTempChannels ?? 0}</strong></p>`
+        : '<p class="modal-meta">Sin configurar — elige categoría y roles, luego guarda.</p>';
+
+      openModal(
+        'Auto Voz',
+        `<div class="modal-section">
+          <p class="modal-meta">Canal <strong>➕ Crear canal</strong>: al unirse, cada usuario obtiene su sala con panel de control.</p>
+          ${hubLine}
+          ${categorySelect('voces-cat', cfg.categoryId || '', 'Categoría')}
+          <label class="form-label">Modo de nombre
+            <select class="form-input" id="voces-mode">
+              <option value="username" ${modeUser ? 'selected' : ''}>Por nombre del creador</option>
+              <option value="sequence" ${!modeUser ? 'selected' : ''}>Por número secuencial (Sala 1, 2…)</option>
+            </select>
+          </label>
+          <div class="modal-section">
+            <h3>Roles con acceso</h3>
+            <p class="modal-meta">Miembros con al menos uno de estos roles pueden crear salas.</p>
+            ${roleCheckboxes(cfg.allowedRoleIds)}
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn btn-accent" data-voces="save">Guardar y crear hub</button>
+            ${cfg.hubChannelId ? '<button type="button" class="btn btn-ghost" data-voces="disable">Desactivar (sin borrar hub)</button>' : ''}
+          </div>
+        </div>`,
+      );
+
+      body.querySelector('[data-voces="save"]')?.addEventListener('click', async () => {
+        const categoryId = document.getElementById('voces-cat')?.value;
+        const namingMode = document.getElementById('voces-mode')?.value || 'username';
+        const allowedRoleIds = [...body.querySelectorAll('.voces-role-cb:checked')].map((el) => el.value);
+        if (!categoryId) return alert('Elige una categoría.');
+        if (!allowedRoleIds.length) return alert('Marca al menos un rol.');
+        const res = await api(`/api/guilds/${modalGuildId}/voces`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ categoryId, namingMode, allowedRoleIds, enabled: true }),
+        });
+        if (!res.ok) {
+          alert((await res.json().catch(() => ({}))).error || 'Error al guardar');
+          return;
+        }
+        alert('Auto voz configurado. El hub se creó en Discord.');
+        const fresh = await api(`/api/guilds/${modalGuildId}/voces`);
+        if (fresh.ok) Object.assign(cfg, await fresh.json());
+        render();
+      });
+
+      body.querySelector('[data-voces="disable"]')?.addEventListener('click', async () => {
+        if (!confirm('¿Desactivar auto voz? No se crearán salas nuevas hasta volver a guardar.')) return;
+        const res = await api(`/api/guilds/${modalGuildId}/voces`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: false }),
+        });
+        if (res.ok) {
+          cfg.enabled = false;
+          alert('Auto voz desactivado.');
+          render();
+        } else {
+          alert((await res.json().catch(() => ({}))).error || 'Error');
+        }
+      });
+    }
+
+    render();
   }
 
   return { CONFIG_MODULES, closeModal };

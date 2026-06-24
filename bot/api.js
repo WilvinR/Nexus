@@ -8,6 +8,9 @@ const { compareLootFiles } = require('./lootComparator');
 
 let server = null;
 const userGuildCache = new Map();
+let lastGuildFetchWarnAt = 0;
+const GUILD_CACHE_MS = Math.max(60_000, parseInt(process.env.OAUTH_GUILD_CACHE_MS || '300000', 10) || 300_000);
+const GUILD_CACHE_STALE_MS = Math.max(GUILD_CACHE_MS, GUILD_CACHE_MS * 2);
 
 function ownersOnly() {
   return process.env.DASHBOARD_OWNERS_ONLY !== 'false';
@@ -51,11 +54,17 @@ function canManageGuild(g) {
 async function fetchUserGuilds(session, log) {
   const key = session.token;
   const hit = userGuildCache.get(key);
-  if (hit && Date.now() - hit.at < 120_000) return hit.guilds;
+  const age = hit ? Date.now() - hit.at : Infinity;
+  if (hit && age < GUILD_CACHE_MS) return hit.guilds;
 
   const guilds = await discordApi('/users/@me/guilds', session.access_token);
   if (!guilds) {
-    log.warn('Discord /users/@me/guilds falló');
+    if (hit && age < GUILD_CACHE_STALE_MS) return hit.guilds;
+    const now = Date.now();
+    if (now - lastGuildFetchWarnAt >= 120_000) {
+      lastGuildFetchWarnAt = now;
+      log.warn('Discord /users/@me/guilds falló (usando caché si existe)');
+    }
     return hit?.guilds ?? null;
   }
   userGuildCache.set(key, { guilds, at: Date.now() });
@@ -450,14 +459,23 @@ function start(client, log, getDb, hooks = {}) {
     };
   }
 
-  async function fetchGuildTopPlayers(guildId) {
-    const dataRes = await albionFetchJson(`/guilds/${guildId}/data`);
+  async function fetchGuildMembersInfo(guildId) {
+    const [memRes, dataRes] = await Promise.all([
+      albionFetchJson(`/guilds/${guildId}/members`),
+      albionFetchJson(`/guilds/${guildId}/data`),
+    ]);
+
+    const members = !memRes || memRes.notFound || !Array.isArray(memRes) ? [] : memRes;
+    const memberCount = members.length || null;
+
+    let topPlayers = [];
     if (dataRes && !dataRes.notFound && dataRes.topPlayers?.length) {
-      return dataRes.topPlayers.slice(0, 5);
+      topPlayers = dataRes.topPlayers.slice(0, 5);
+    } else if (members.length) {
+      topPlayers = [...members].sort((a, b) => (b.KillFame || 0) - (a.KillFame || 0)).slice(0, 5);
     }
-    const memRes = await albionFetchJson(`/guilds/${guildId}/members`);
-    if (!memRes || memRes.notFound || !Array.isArray(memRes)) return [];
-    return [...memRes].sort((a, b) => (b.KillFame || 0) - (a.KillFame || 0)).slice(0, 5);
+
+    return { memberCount, topPlayers };
   }
 
   app.get('/api/albion/players/:playerId', sessionAuth, async (req, res) => {
@@ -504,7 +522,7 @@ function start(client, log, getDb, hooks = {}) {
           allianceTag = al.Tag || al.AllianceTag || al.AllianceName || null;
         }
       }
-      const topPlayers = await fetchGuildTopPlayers(id);
+      const { memberCount, topPlayers } = await fetchGuildMembersInfo(id);
       res.json({
         ok: true,
         guild: {
@@ -512,7 +530,7 @@ function start(client, log, getDb, hooks = {}) {
           name: data.Name,
           founderName: data.FounderName || null,
           founded: data.Founded || null,
-          memberCount: data.MemberCount ?? null,
+          memberCount: memberCount ?? data.MemberCount ?? null,
           allianceId: data.AllianceId || null,
           allianceName: data.AllianceName || null,
           allianceTag,

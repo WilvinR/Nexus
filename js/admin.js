@@ -41,6 +41,9 @@ function cmdLabel(name) {
     utc: '/utc',
     sugerencia: '/sugerencia',
     ayuda: '/ayuda',
+    'comparar-loot': '/comparar-loot',
+    configurar_autovoz: '/configurar_autovoz',
+    'gucci-kills': '/gucci-kills',
   };
   if (map[n]) return map[n];
   if (n.includes(':')) return `/${n.replace(':', ' ')}`;

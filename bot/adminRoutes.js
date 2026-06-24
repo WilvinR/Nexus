@@ -446,6 +446,36 @@ function registerAdminRoutes(app, { client, getDb, log, sessionAuth }) {
   });
 }
 
+function cleanupOldLogs(getDb) {
+  const days = Math.max(7, parseInt(process.env.LOG_RETENTION_DAYS || '14', 10) || 14);
+  const cutoff = Date.now() - days * 86400000;
+  const system = getDb().prepare('DELETE FROM system_logs WHERE created_at < ?').run(cutoff).changes;
+  const errors = getDb().prepare('DELETE FROM error_logs WHERE created_at < ?').run(cutoff).changes;
+  const sanciones = getDb()
+    .prepare('DELETE FROM sanciones_log WHERE created_at < ?')
+    .run(cutoff)
+    .changes;
+  return { system, errors, sanciones, retentionDays: days };
+}
+
+/** Limpieza semanal de logs en SQLite (sin módulo aparte). */
+function startLogCleanupScheduler(getDb, log) {
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const run = () => {
+    try {
+      const r = cleanupOldLogs(getDb);
+      log.info(
+        `🧹 Limpieza logs (>${r.retentionDays}d): ${r.system} system, ${r.errors} error, ${r.sanciones} sanciones eliminados`,
+      );
+    } catch (e) {
+      log.warn(`Limpieza logs: ${e.message}`);
+    }
+  };
+  setTimeout(run, 5 * 60 * 1000);
+  setInterval(run, weekMs);
+  log.info('Limpieza de logs: 1ª ejecución ~5 min tras arrancar, luego cada 7 días (LOG_RETENTION_DAYS)');
+}
+
 module.exports = {
   registerAdminRoutes,
   isBotOwner,
@@ -455,4 +485,6 @@ module.exports = {
   saveSuggestion,
   parseYoutubeId,
   resolveGuildName,
+  cleanupOldLogs,
+  startLogCleanupScheduler,
 };

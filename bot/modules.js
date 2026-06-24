@@ -10,6 +10,7 @@ const MODULES = [
   { id: 'bal', name: 'Bal', desc: 'Balance virtual del gremio' },
   { id: 'utilidad', name: 'Utilidad', desc: 'UTC, ayuda, sugerencias' },
   { id: 'loot', name: 'Loot Compare', desc: 'Compara loot de pelea vs cofre del gremio' },
+  { id: 'voces', name: 'Auto Voz', desc: 'Canales de voz temporales join-to-create' },
 ];
 
 const COMMAND_TO_MODULE = {
@@ -49,6 +50,7 @@ const COMMAND_TO_MODULE = {
   logs: 'logs',
   pausar_logs: 'logs',
   'comparar-loot': 'loot',
+  configurar_autovoz: 'voces',
 };
 
 function prefixModule(customId) {
@@ -63,6 +65,7 @@ function prefixModule(customId) {
     eventos: 'eventos',
     mod: 'moderacion',
     logs: 'logs',
+    voces: 'voces',
   };
   return map[p] || null;
 }

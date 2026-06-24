@@ -123,8 +123,8 @@ function analyzeSuspects(snapshot) {
   if (m.externalMb >= 80 || m.arrayBuffersMb >= 40) {
     suspects.push({
       id: 'native.buffers',
-      label: `Memoria nativa/buffers (Ext ${m.externalMb} MB, AB ${m.arrayBuffersMb} MB) — canvas, imágenes, Discord`,
-      severity: m.externalMb >= 150 ? 'high' : 'medium',
+      label: `Memoria nativa/buffers (Ext ${m.externalMb} MB, AB ${m.arrayBuffersMb} MB) — canvas/imágenes kill; suele bajar tras GC`,
+      severity: m.arrayBuffersMb >= 180 ? 'high' : m.externalMb >= 150 ? 'high' : 'medium',
     });
   }
 

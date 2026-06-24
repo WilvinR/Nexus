@@ -37,6 +37,7 @@ const CATEGORIES = {
       { name: '/killboard config', desc: 'Muestra la configuración activa del killboard.' },
       { name: '/gucci-kills', desc: 'Activa feed global ≥3.5M fama (elige canal).' },
       { name: '/gucci-kills-detener', desc: 'Desactiva Gucci Kills.' },
+      { name: 'Dashboard web', desc: 'Gremios en seguimiento y Gucci Kills desde Killboard → Configurar.' },
     ],
   },
   batallas: {
@@ -120,6 +121,21 @@ const CATEGORIES = {
         desc: 'Compara el log de loot de una pelea vs movimientos del cofre (2 CSV adjuntos, Mod).',
       },
       { name: 'Dashboard web', desc: 'Sube ambos CSV y compara desde Comparar loot en el panel.' },
+    ],
+  },
+  voces: {
+    label: 'Auto Voz',
+    emoji: '🔊',
+    commands: [
+      {
+        name: '/configurar_autovoz',
+        desc: 'Configura categoría, roles y modo de nombre. Crea el hub ➕ Crear canal (Mod).',
+      },
+      {
+        name: 'Hub ➕ Crear canal',
+        desc: 'Al unirse, el bot crea una sala temporal con panel de control (nombre, límite, estado, permisos).',
+      },
+      { name: 'Dashboard web', desc: 'Configura auto voz desde Módulos → Auto Voz → Configurar.' },
     ],
   },
   utilidad: {
@@ -277,8 +293,9 @@ const commands = [
       const embed = new EmbedBuilder()
         .setTitle('📚 Ayuda — Nexus Bot')
         .setDescription(
-          'Bot de Albion Online para servidores **Américas (LATAM)**.\n' +
-            'Selecciona una categoría abajo. Los admins también pueden usar el **Dashboard** web para configurar módulos.',
+          'Bot modular para gremios de Albion Online (**Américas / LATAM**).\n\n' +
+            '**12 módulos:** Registro · Killboard · Battle · Mercado · Logs · Moderación · Eventos · Sanciones · Balance · Utilidad · Loot Compare · Auto Voz\n\n' +
+            'Selecciona una categoría abajo. Los admins pueden activar módulos y configurarlos en el **Dashboard** web.',
         )
         .setColor(Colors.Blurple);
       await ix.reply({

@@ -25,6 +25,7 @@ const {
 const { resolveBattleTrackInput, seedBattles } = require('./battle');
 const { GUCCI_MIN_FAME } = require('./kill');
 const { resolveMemberStats } = require('./memberStats');
+const { getConfig: getVocesConfig, applyVocesSetup, saveConfig: saveVocesConfig } = require('./voces');
 
 function gid(id) {
   return String(id);
@@ -1127,6 +1128,88 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
       res.json({ ok: true });
     } catch (e) {
       res.status(400).json({ error: e.message || 'No se pudo eliminar el evento' });
+    }
+  });
+
+  app.get('/api/guilds/:guildId/voces', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+    const cfg = getVocesConfig(getDb, ctx.guildId);
+    const activeCount = getDb()
+      .prepare('SELECT COUNT(*) AS n FROM voces_temp_channels WHERE guild_id = ?')
+      .get(gid(ctx.guildId))?.n ?? 0;
+    let hubName = null;
+    if (cfg?.hubChannelId) {
+      const hub = ctx.guild.channels.cache.get(cfg.hubChannelId);
+      hubName = hub?.name ?? null;
+    }
+    res.json({
+      ok: true,
+      configured: Boolean(cfg?.hubChannelId),
+      enabled: cfg?.enabled ?? false,
+      categoryId: cfg?.categoryId ?? null,
+      hubChannelId: cfg?.hubChannelId ?? null,
+      hubName,
+      namingMode: cfg?.namingMode ?? 'username',
+      allowedRoleIds: cfg?.allowedRoleIds ?? [],
+      sequenceCounter: cfg?.sequenceCounter ?? 0,
+      activeTempChannels: activeCount,
+    });
+  });
+
+  app.patch('/api/guilds/:guildId/voces', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+
+    const enabledOnly = req.body?.enabled === false && !req.body?.categoryId;
+    if (enabledOnly) {
+      const prev = getVocesConfig(getDb, ctx.guildId);
+      if (prev) {
+        saveVocesConfig(getDb, ctx.guildId, { ...prev, enabled: false });
+      }
+      return res.json({ ok: true, enabled: false });
+    }
+
+    const categoryId = req.body?.categoryId ? String(req.body.categoryId).trim() : null;
+    const namingMode = req.body?.namingMode === 'sequence' ? 'sequence' : 'username';
+    let allowedRoleIds = req.body?.allowedRoleIds;
+    if (!Array.isArray(allowedRoleIds)) allowedRoleIds = [];
+    allowedRoleIds = [...new Set(allowedRoleIds.map(String).filter(Boolean))];
+
+    if (!categoryId) {
+      return res.status(400).json({ error: 'La categoría es obligatoria' });
+    }
+    if (!allowedRoleIds.length) {
+      return res.status(400).json({ error: 'Selecciona al menos un rol' });
+    }
+
+    const cat = ctx.guild.channels.cache.get(categoryId);
+    if (!cat || cat.type !== ChannelType.GuildCategory) {
+      return res.status(400).json({ error: 'Categoría no válida' });
+    }
+
+    for (const rid of allowedRoleIds) {
+      const err = canBotManageRole(ctx.guild, rid);
+      if (err) return res.status(400).json({ error: err });
+    }
+
+    try {
+      const result = await applyVocesSetup(client, getDb, ctx.guildId, log, {
+        categoryId,
+        namingMode,
+        allowedRoleIds,
+        enabled: req.body?.enabled !== false,
+      });
+      res.json({
+        ok: true,
+        enabled: true,
+        categoryId,
+        hubChannelId: result.hubChannelId,
+        namingMode: result.namingMode,
+        allowedRoleIds: result.allowedRoleIds,
+      });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo configurar auto voz' });
     }
   });
 }

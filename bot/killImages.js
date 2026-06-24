@@ -50,16 +50,32 @@ function destroyCanvas(canvas) {
   }
 }
 
+function releaseItemCache(itemCache) {
+  if (!itemCache) return;
+  itemCache.clear();
+}
+
+function tryReleaseNativeMemory() {
+  if (typeof global.gc === 'function') global.gc();
+}
+
 /** Libera buffers PNG tras enviar a Discord. */
 function releaseKillBuffers(built) {
   if (!built || built.skip) return;
-  built.mainBuffer = null;
-  built.statsBuffer = null;
+  try {
+    releaseItemCache(built.itemCache);
+    built.mainBuffer = null;
+    built.statsBuffer = null;
+    tryReleaseNativeMemory();
+  } catch {
+    /* no propagar desde finally */
+  }
 }
 
-const IMAGE_FETCH_CONCURRENCY = Math.max(2, parseInt(process.env.KILL_IMAGE_CONCURRENCY || '4', 10) || 4);
-const IMAGE_FETCH_RETRIES = Math.max(1, parseInt(process.env.KILL_IMAGE_RETRIES || '3', 10) || 3);
+const IMAGE_FETCH_CONCURRENCY = Math.max(1, parseInt(process.env.KILL_IMAGE_CONCURRENCY || '2', 10) || 2);
+const IMAGE_FETCH_RETRIES = Math.max(1, parseInt(process.env.KILL_IMAGE_RETRIES || '5', 10) || 5);
 const IMAGE_FETCH_TIMEOUT_MS = Math.max(8000, parseInt(process.env.KILL_IMAGE_TIMEOUT_MS || '18000', 10) || 18000);
+const BUILD_PRELOAD_RETRIES = Math.max(1, parseInt(process.env.KILL_BUILD_RETRIES || '3', 10) || 3);
 
 async function mapWithConcurrency(items, fn, concurrency) {
   if (!items.length) return [];
@@ -74,6 +90,36 @@ async function mapWithConcurrency(items, fn, concurrency) {
   const workers = Math.min(concurrency, items.length);
   await Promise.all(Array.from({ length: workers }, () => worker()));
   return results;
+}
+
+function isLikelyPng(buf) {
+  return buf && buf.length > 24 && buf[0] === 0x89 && buf[1] === 0x50;
+}
+
+function drawItem(ctx, itemCache, x, y, item, size) {
+  const img = getCachedItemImage(itemCache, item);
+  if (!img) {
+    throw new Error(`Ítem sin imagen: ${item?.Type || '?'}`);
+  }
+  ctx.drawImage(img, x, y, size, size);
+}
+
+function pasteItem(ctx, itemCache, x, y, item, size) {
+  if (!item) return;
+  if (!isRenderableItem(item)) return;
+  drawItem(ctx, itemCache, x, y, item, size);
+}
+
+function pasteItemGhost(ctx, itemCache, x, y, item, size) {
+  if (!item || !isRenderableItem(item)) return;
+  const img = getCachedItemImage(itemCache, item);
+  if (!img) {
+    throw new Error(`Ítem sin imagen: ${item.Type}`);
+  }
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  ctx.drawImage(img, x, y, size, size);
+  ctx.restore();
 }
 
 async function fetchItemImageBuffer(item) {
@@ -92,6 +138,7 @@ async function loadItemImage(itemCache, item) {
   for (let attempt = 0; attempt < IMAGE_FETCH_RETRIES; attempt++) {
     try {
       const buf = await fetchItemImageBuffer(item);
+      if (!isLikelyPng(buf)) throw new Error('PNG inválido');
       const img = await loadImage(buf);
       itemCache.set(key, img);
       return img;
@@ -109,15 +156,61 @@ function collectEquipmentItems(equipment) {
   return Object.values(eq).filter((it) => it && it.Type);
 }
 
-async function preloadItemImages(itemCache, items) {
+/** Trofeos / mementos — la API render.albiononline.com devuelve 404. */
+const SKIP_ITEM_PREFIXES = ['UNIQUE_FURNITUREITEM_KILLTROPHY'];
+
+function isRenderableItem(item) {
+  if (!item?.Type) return false;
+  const type = String(item.Type).toUpperCase();
+  if (type.includes('TRASH')) return false;
+  if (SKIP_ITEM_PREFIXES.some((p) => type.startsWith(p))) return false;
+  return true;
+}
+
+function collectRenderableEquipmentItems(equipment) {
+  return collectEquipmentItems(equipment).filter(isRenderableItem);
+}
+
+function uniqueRenderableItems(items) {
   const unique = new Map();
   for (const item of items) {
-    if (!item?.Type) continue;
+    if (!isRenderableItem(item)) continue;
     const key = itemCacheKey(item);
     if (!unique.has(key)) unique.set(key, item);
   }
-  const list = [...unique.values()];
-  await mapWithConcurrency(list, (item) => loadItemImage(itemCache, item), IMAGE_FETCH_CONCURRENCY);
+  return [...unique.values()];
+}
+
+async function preloadItemImages(itemCache, items) {
+  const list = uniqueRenderableItems(items);
+  if (!list.length) return [];
+
+  const failed = [];
+  await mapWithConcurrency(
+    list,
+    async (item) => {
+      const img = await loadItemImage(itemCache, item);
+      if (!img) failed.push(item.Type);
+    },
+    IMAGE_FETCH_CONCURRENCY,
+  );
+  return failed;
+}
+
+async function ensureAllItemImages(itemCache, items) {
+  let lastFailed = [];
+  for (let attempt = 0; attempt < BUILD_PRELOAD_RETRIES; attempt++) {
+    lastFailed = await preloadItemImages(itemCache, items);
+    if (!lastFailed.length) return;
+    releaseItemCache(itemCache);
+    if (attempt + 1 < BUILD_PRELOAD_RETRIES) {
+      await new Promise((r) => setTimeout(r, 900 * (attempt + 1)));
+    }
+  }
+  const sample = lastFailed.slice(0, 5).join(', ');
+  throw new Error(
+    `Imágenes incompletas: ${lastFailed.length} ítem(s) sin cargar${sample ? ` (${sample})` : ''}`,
+  );
 }
 
 function getCachedItemImage(itemCache, item) {
@@ -214,25 +307,6 @@ function parseTimestamp(ts) {
   }
 }
 
-function pasteItem(ctx, itemCache, x, y, item, size) {
-  if (!item) return;
-  const type = item.Type || '';
-  if (!type || type.toUpperCase().includes('TRASH')) return;
-  const img = getCachedItemImage(itemCache, item);
-  if (!img) return;
-  ctx.drawImage(img, x, y, size, size);
-}
-
-function pasteItemGhost(ctx, itemCache, x, y, item, size) {
-  if (!item) return;
-  const img = getCachedItemImage(itemCache, item);
-  if (!img) return;
-  ctx.save();
-  ctx.globalAlpha = 0.25;
-  ctx.drawImage(img, x, y, size, size);
-  ctx.restore();
-}
-
 function drawEquipmentGrid(ctx, itemCache, startX, startY, equipment, isKiller, spacing, itemSize) {
   const positions = {
     Bag: [0, 0],
@@ -264,8 +338,8 @@ function drawEquipmentGrid(ctx, itemCache, startX, startY, equipment, isKiller, 
 }
 
 function drawInvItem(ctx, itemCache, x, y, item, size) {
-  const img = getCachedItemImage(itemCache, item);
-  if (img) ctx.drawImage(img, x, y, size, size);
+  if (!isRenderableItem(item)) return;
+  drawItem(ctx, itemCache, x, y, item, size);
 }
 
 async function getInvItemPrice(item) {
@@ -307,6 +381,16 @@ async function buildKillNotificationImages(killData, entityConfig) {
     isKill = isOurKill;
   }
 
+  const alliedParticipants = getAlliedParticipants(killData);
+  const inventory = (victim.Inventory || []).filter((it) => it && it.Type);
+  const imageItems = [
+    ...collectRenderableEquipmentItems(killer.Equipment),
+    ...collectRenderableEquipmentItems(victim.Equipment),
+    ...inventory.filter(isRenderableItem),
+    ...alliedParticipants.filter((p) => p.weapon?.Type && isRenderableItem(p.weapon)).map((p) => p.weapon),
+  ];
+  await ensureAllItemImages(itemCache, imageItems);
+
   const WIDTH = 1250;
   let HEIGHT = 900;
   const BG = '#D4B896';
@@ -329,7 +413,6 @@ async function buildKillNotificationImages(killData, entityConfig) {
   const CENTER_X = WIDTH / 2;
   const EQUIP_AREA_HEIGHT = 4 * EQUIP_SPACING + 50;
 
-  const inventory = (victim.Inventory || []).filter((it) => it && it.Type);
   const invRows = inventory.length
     ? Math.ceil(inventory.length / INV_ITEMS_PER_ROW)
     : 0;
@@ -368,20 +451,11 @@ async function buildKillNotificationImages(killData, entityConfig) {
     ? `[${victimAlliance}] ${victimGuild}`
     : victimGuild || 'Sin Gremio';
 
-  const alliedParticipants = getAlliedParticipants(killData);
-
   const equipment = victim.Equipment || {};
-  const imageItems = [
-    ...collectEquipmentItems(killer.Equipment),
-    ...collectEquipmentItems(victim.Equipment),
-    ...inventory,
-    ...alliedParticipants.filter((p) => p.weapon?.Type).map((p) => p.weapon),
-  ];
   const priceTasks = Object.values(equipment)
     .filter((it) => it && it.Type)
     .map((it) => getItemPrice(it.Type));
 
-  await preloadItemImages(itemCache, imageItems);
   const prices = priceTasks.length ? await Promise.all(priceTasks) : [];
   const totalEquipmentValue = prices.reduce((s, p) => s + (p > 0 ? p : 0), 0);
   const fame = killData.TotalVictimKillFame || 0;
@@ -525,12 +599,9 @@ async function buildKillNotificationImages(killData, entityConfig) {
     let rowY = statsTitleHeight;
 
     for (const p of sorted) {
-      if (p.weapon?.Type) {
-        const wImg = getCachedItemImage(itemCache, p.weapon);
-        if (wImg) {
-          const iconY = rowY + (rowHeight - WEAPON_ICON_SIZE) / 2;
-          sctx.drawImage(wImg, 20, iconY, WEAPON_ICON_SIZE, WEAPON_ICON_SIZE);
-        }
+      if (p.weapon?.Type && isRenderableItem(p.weapon)) {
+        const iconY = rowY + (rowHeight - WEAPON_ICON_SIZE) / 2;
+        drawItem(sctx, itemCache, 20, iconY, p.weapon, WEAPON_ICON_SIZE);
       }
 
       sctx.font = fontStatsName;
@@ -578,6 +649,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
     content,
     mainBuffer,
     statsBuffer,
+    itemCache,
     eventId: killData.EventId,
     eventTime: tsDate,
   };

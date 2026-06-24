@@ -23,16 +23,17 @@ const bal = require('./bal');
 const utilidad = require('./utilidad');
 const mercado = require('./mercado');
 const lootCompare = require('./lootCompare');
+const voces = require('./voces');
 const { moduleForInteraction, isModuleEnabled } = require('./modules');
 const commandSync = require('./commandSync');
-const { logError, logSystem } = require('./adminRoutes');
+const { logError, logSystem, startLogCleanupScheduler } = require('./adminRoutes');
 const { startRamMonitor } = require('./ramMonitor');
 const memoryDiagnostics = require('./memoryDiagnostics');
 const killImages = require('./killImages');
 const { logCommand, ensureGuildMeta, startStatsScheduler } = require('./stats');
 const { buildInviteUrl } = require('./invite');
 
-const modulos = [require('./registro'), kill, moderacion, eventos, sanciones, battle, bal, utilidad, mercado, lootCompare];
+const modulos = [require('./registro'), kill, moderacion, eventos, sanciones, battle, bal, utilidad, mercado, lootCompare, voces];
 commandSync.init(modulos, logs);
 
 // ——— .env ———
@@ -247,6 +248,23 @@ function getDb() {
       moderator_id TEXT,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS voces_config (
+      guild_id TEXT PRIMARY KEY,
+      category_id TEXT,
+      hub_channel_id TEXT,
+      naming_mode TEXT DEFAULT 'username',
+      allowed_role_ids TEXT DEFAULT '[]',
+      sequence_counter INTEGER DEFAULT 0,
+      enabled INTEGER DEFAULT 1
+    );
+    CREATE TABLE IF NOT EXISTS voces_temp_channels (
+      channel_id TEXT PRIMARY KEY,
+      guild_id TEXT NOT NULL,
+      owner_id TEXT NOT NULL,
+      sequence_number INTEGER,
+      control_message_id TEXT,
+      created_at INTEGER NOT NULL
+    );
   `);
   const registroCols = db.prepare('PRAGMA table_info(registro_guilds)').all();
   if (registroCols.length && !registroCols.some((c) => c.name === 'registro_mode')) {
@@ -337,6 +355,7 @@ client.once(Events.ClientReady, (c) => {
       memoryDiagnostics.registerProvider('killImages', () => killImages.getMemoryStats());
       memoryDiagnostics.registerProvider('api', () => api.getMemoryStats());
       startRamMonitor(client, getDb, log);
+      startLogCleanupScheduler(getDb, log);
       for (const g of client.guilds.cache.values()) {
         ensureGuildMeta(getDb, g.id, {
           ownerId: g.ownerId,
@@ -383,15 +402,17 @@ function buildWelcomeDmPayload() {
       {
         name: '🔥 Lo que puedes hacer con Nexus',
         value:
-          '⚔️ **Killboard en tiempo real** — Notificaciones instantáneas con imágenes\n' +
-          '🏆 **Battle Reports** — Reportes automáticos de batallas importantes\n' +
-          '📋 **Registro Inteligente** — Validación automática con Albion + expulsión al salir\n' +
-          '💰 **BAL & Economía** — Balances, deudas, pagos y reequip\n' +
-          '📅 **Eventos** — Crea eventos con inscripciones fáciles\n' +
-          '🛡️ **Sanciones** — Strikes y multas con registro completo\n' +
-          '📊 **Estadísticas** — Seguimiento de actividad de miembros\n' +
-          '🔄 **Loot Comparator** — Compara loot de pelea vs cofre del gremio\n' +
-          '🕒 **Reloj UTC** + herramientas diarias',
+          '⚔️ **Killboard** — Kills/muertes con imágenes + Gucci Kills\n' +
+          '🛡️ **Battle Reports** — Batallas de gremio o alianza\n' +
+          '📋 **Registro** — Albion + roles + expulsión automática\n' +
+          '💰 **Balance (BAL)** — Plata virtual, pagos y auditoría\n' +
+          '📅 **Eventos** — Inscripciones con emojis y dashboard\n' +
+          '⚖️ **Sanciones** — Strikes y multas con registro\n' +
+          '🪙 **Mercado** — Precios Américas con /precio\n' +
+          '📜 **Logs** — Auditoría del servidor Discord\n' +
+          '📋 **Loot Compare** — Pelea vs cofre del gremio\n' +
+          '🔊 **Auto Voz** — Salas temporales join-to-create\n' +
+          '🔧 **Utilidad** — Reloj UTC, /ayuda y sugerencias',
         inline: false,
       },
       {
@@ -421,14 +442,9 @@ function buildWelcomeDmPayload() {
 async function welcomeNewMember(member) {
   if (!member?.user || member.user.bot) return;
 
-  const uid = String(member.user.id);
-  const row = getDb().prepare('SELECT 1 FROM welcome_dm_sent WHERE user_id = ?').get(uid);
-  if (row) return;
-
   try {
     const payload = buildWelcomeDmPayload();
     await member.user.send(payload);
-    getDb().prepare('INSERT INTO welcome_dm_sent (user_id, sent_at) VALUES (?, ?)').run(uid, Date.now());
     log.info(`Welcome DM enviado a ${member.user.tag} (${member.guild?.name || '?'})`);
   } catch (e) {
     log.warn(`Welcome DM a ${member.user.tag}: ${e.message} — ¿DMs cerrados?`);

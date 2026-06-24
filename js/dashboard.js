@@ -14,8 +14,9 @@ const MODULE_EMOJI = {
   eventos: '🏹',
   sanciones: '⚖️',
   bal: '💰',
-  utilidad: '📩',
+  utilidad: '🔧',
   loot: '📋',
+  voces: '🔊',
 };
 
 function api(path, opts = {}) {
@@ -767,7 +768,7 @@ function renderGuildGrid() {
 
 function renderModules(modList, guildId, modules) {
   modList.innerHTML = '';
-  const configurable = moduleModals?.CONFIG_MODULES || new Set(['registro', 'kill', 'battle', 'logs', 'utilidad', 'sanciones', 'eventos']);
+  const configurable = moduleModals?.CONFIG_MODULES || new Set(['registro', 'kill', 'battle', 'logs', 'utilidad', 'sanciones', 'eventos', 'voces']);
   for (const m of modules) {
     const showConfig = configurable.has(m.id);
     const emoji = MODULE_EMOJI[m.id] || '⚙️';

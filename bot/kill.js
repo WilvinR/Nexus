@@ -35,36 +35,50 @@ let gucciNotifyChain = Promise.resolve();
 
 const notificationRetries = Math.max(1, parseInt(process.env.KILL_NOTIFICATION_RETRIES || '3', 10) || 3);
 const notificationRetryDelay = parseFloat(process.env.KILL_NOTIFICATION_RETRY_DELAY || '2') || 2;
-const notificationDelay = parseFloat(process.env.KILL_NOTIFICATION_DELAY || '40') || 40;
+const notificationDelay = parseFloat(process.env.KILL_NOTIFICATION_DELAY || '15') || 15;
 const maxNotificationsPerEntity = parseInt(process.env.KILL_MAX_NOTIFICATIONS_PER_ENTITY || '20', 10);
 const maxNotificationsPerCycle = parseInt(process.env.KILL_MAX_NOTIFICATIONS_PER_CYCLE || '80', 10);
-const memberCheckConcurrency = 12;
+const KILL_MONITOR_MS = Math.max(30_000, parseInt(process.env.KILL_MONITOR_MS || '120000', 10) || 120_000);
+const DISCORD_SEND_TIMEOUT_MS = Math.max(
+  10_000,
+  parseInt(process.env.DISCORD_SEND_TIMEOUT_MS || '30000', 10) || 30_000,
+);
+const GUILD_MEMBERS_CACHE_MS = Math.max(
+  60_000,
+  parseInt(process.env.GUILD_MEMBERS_CACHE_MS || '300000', 10) || 300_000,
+);
+
+const guildMemberCache = new Map();
 
 let notificationLock = Promise.resolve();
 let currentCycleNotifications = 0;
 let limitReached = false;
 
-class Semaphore {
-  constructor(max) {
-    this.max = max;
-    this.active = 0;
-    this.queue = [];
-  }
-  async run(fn) {
-    while (this.active >= this.max) {
-      await new Promise((r) => this.queue.push(r));
-    }
-    this.active++;
-    try {
-      return await fn();
-    } finally {
-      this.active--;
-      if (this.queue.length) this.queue.shift()();
-    }
-  }
+async function withNotificationQueue(fn) {
+  const task = notificationLock.catch(() => {}).then(fn);
+  notificationLock = task.catch(() => {});
+  return task;
 }
 
-const memberSemaphore = new Semaphore(memberCheckConcurrency);
+async function sendDiscordMessage(channel, payload) {
+  const send = channel.send(payload);
+  const timeout = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Discord send timeout')), DISCORD_SEND_TIMEOUT_MS);
+  });
+  return Promise.race([send, timeout]);
+}
+
+async function fetchGuildMembers(guildId) {
+  const key = String(guildId);
+  const hit = guildMemberCache.get(key);
+  if (hit && Date.now() - hit.at < GUILD_MEMBERS_CACHE_MS) return hit.members;
+
+  const res = await apiGet(`${API}/guilds/${key}/members`);
+  if (!res.ok || !Array.isArray(res.data)) return hit?.members ?? [];
+  const members = res.data.filter((m) => m.Id);
+  guildMemberCache.set(key, { members, at: Date.now() });
+  return members;
+}
 
 async function apiGet(url) {
   for (let i = 0; i < 3; i++) {
@@ -169,23 +183,16 @@ async function sendKillNotification(channel, event, entity, log, bypassDedupe = 
         );
       }
 
-      await new Promise((resolve, reject) => {
-        notificationLock = notificationLock.then(async () => {
-          try {
-            await channel.send({ content: built.content, embeds, files });
-            if (!bypassDedupe && eventId) {
-              const dedupe = `${entity.entity_type}:${entity.albion_entity_id}:${eventKind}:${eventId}`;
-              recentEvents.set(dedupe, Date.now());
-            }
-            currentCycleNotifications++;
-            if (notificationDelay > 0) {
-              await new Promise((r) => setTimeout(r, notificationDelay * 1000));
-            }
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
-        });
+      await withNotificationQueue(async () => {
+        await sendDiscordMessage(channel, { content: built.content, embeds, files });
+        if (!bypassDedupe && eventId) {
+          const dedupe = `${entity.entity_type}:${entity.albion_entity_id}:${eventKind}:${eventId}`;
+          recentEvents.set(dedupe, Date.now());
+        }
+        currentCycleNotifications++;
+        if (notificationDelay > 0) {
+          await new Promise((r) => setTimeout(r, notificationDelay * 1000));
+        }
       });
       return true;
     } catch (e) {
@@ -193,6 +200,7 @@ async function sendKillNotification(channel, event, entity, log, bypassDedupe = 
       if (attempt + 1 < notificationRetries && notificationRetryDelay > 0) {
         await new Promise((r) => setTimeout(r, notificationRetryDelay * 1000));
       } else {
+        log.warn(`[kill] Notificación omitida (imagen incompleta): ${e.message}`);
         return false;
       }
     } finally {
@@ -273,44 +281,42 @@ async function checkEntityKills(getDb, entity, client, log) {
 }
 
 async function checkMemberDeaths(sessionEntity, playerId, deathIds, client, log) {
-  return memberSemaphore.run(async () => {
-    const entity = sessionEntity;
-    const ch = client.channels.cache.get(entity.death_channel_id);
-    if (!ch?.isTextBased()) return { sent: 0, updates: {} };
+  const entity = sessionEntity;
+  const ch = client.channels.cache.get(entity.death_channel_id);
+  if (!ch?.isTextBased()) return { sent: 0, updates: {} };
 
-    const res = await apiGet(`${API}/players/${playerId}/deaths?limit=50`);
-    if (!res.ok || !Array.isArray(res.data)) return { sent: 0, updates: {} };
+  const res = await apiGet(`${API}/players/${playerId}/deaths?limit=50`);
+  if (!res.ok || !Array.isArray(res.data)) return { sent: 0, updates: {} };
 
-    const last = deathIds[playerId] || null;
-    const { init, events } = newEvents(res.data, last);
+  const last = deathIds[playerId] || null;
+  const { init, events } = newEvents(res.data, last);
 
-    if (init) return { sent: 0, updates: { [playerId]: init } };
+  if (init) return { sent: 0, updates: { [playerId]: init } };
 
-    let sent = 0;
-    let lastId = last;
-    let processed = 0;
+  let sent = 0;
+  let lastId = last;
+  let processed = 0;
 
-    for (const ev of events) {
-      if (limitReached) break;
-      if (maxNotificationsPerEntity > 0 && processed >= maxNotificationsPerEntity) break;
+  for (const ev of events) {
+    if (limitReached) break;
+    if (maxNotificationsPerEntity > 0 && processed >= maxNotificationsPerEntity) break;
 
-      const result = await sendKillNotification(ch, ev, entity, log);
-      if (result === null) break;
-      if (result === true) {
-        sent++;
-        processed++;
-        lastId = String(ev.EventId);
-      }
+    const result = await sendKillNotification(ch, ev, entity, log);
+    if (result === null) break;
+    if (result === true) {
+      sent++;
+      processed++;
+      lastId = String(ev.EventId);
     }
+  }
 
-    if (lastId && lastId !== last) {
-      return { sent, updates: { [playerId]: lastId } };
-    }
-    if (!limitReached && res.data[0]?.EventId && !events.length) {
-      return { sent: 0, updates: { [playerId]: String(res.data[0].EventId) } };
-    }
-    return { sent, updates: {} };
-  });
+  if (lastId && lastId !== last) {
+    return { sent, updates: { [playerId]: lastId } };
+  }
+  if (!limitReached && res.data[0]?.EventId && !events.length) {
+    return { sent: 0, updates: { [playerId]: String(res.data[0].EventId) } };
+  }
+  return { sent, updates: {} };
 }
 
 async function checkEntityDeaths(getDb, entity, client, log) {
@@ -353,20 +359,21 @@ async function checkEntityDeaths(getDb, entity, client, log) {
     return sent;
   }
 
-  const members = await apiGet(`${API}/guilds/${entity.albion_entity_id}/members`);
-  if (!members.ok || !Array.isArray(members.data)) return 0;
+  const allMembers = await fetchGuildMembers(entity.albion_entity_id);
+  if (!allMembers.length) return 0;
 
   let deathIds = parseDeathIds(entity);
   let totalSent = 0;
-  const validMembers = members.data.filter((m) => m.Id);
 
-  const results = await Promise.all(
-    validMembers.map((m) => checkMemberDeaths(entity, String(m.Id), deathIds, client, log)),
-  );
-
-  for (const r of results) {
-    totalSent += r.sent;
-    Object.assign(deathIds, r.updates);
+  for (const m of allMembers) {
+    if (limitReached) break;
+    try {
+      const r = await checkMemberDeaths(entity, String(m.Id), deathIds, client, log);
+      totalSent += r.sent;
+      Object.assign(deathIds, r.updates);
+    } catch (e) {
+      log.warn(`[kill] Muerte ${entity.name} / ${m.Name || m.Id}: ${e.message}`);
+    }
   }
 
   getDb()
@@ -378,6 +385,7 @@ async function checkEntityDeaths(getDb, entity, client, log) {
 
 async function runMonitor(getDb, client, log) {
   const sep = '─'.repeat(55);
+  const cycleStarted = Date.now();
   log.info(`\n${sep}\n  🔄  CICLO KILLBOARD INICIADO\n${sep}`);
 
   currentCycleNotifications = 0;
@@ -388,7 +396,12 @@ async function runMonitor(getDb, client, log) {
     if (now - t > 3_600_000) recentEvents.delete(k);
   }
 
-  const rows = getDb().prepare('SELECT * FROM kill_entities').all();
+  const rows = getDb().prepare('SELECT * FROM kill_entities ORDER BY id ASC').all();
+  if (!rows.length) {
+    log.info('[kill] Sin entidades en seguimiento');
+  } else {
+    log.info(`[kill] Monitoreando ${rows.length} entidad(es) — detectar y enviar al instante`);
+  }
   for (const entity of rows) {
     if (limitReached) {
       log.warn('[kill] Límite global — deteniendo ciclo');
@@ -403,7 +416,22 @@ async function runMonitor(getDb, client, log) {
     }
   }
 
-  log.info(`\n  ✅  CICLO KILLBOARD COMPLETADO\n${sep}`);
+  const elapsed = Math.round((Date.now() - cycleStarted) / 1000);
+  log.info(`\n  ✅  CICLO KILLBOARD COMPLETADO (${elapsed}s)\n${sep}`);
+}
+
+function startKillMonitorLoop(getDb, client, log) {
+  const loop = async () => {
+    for (;;) {
+      try {
+        await runMonitor(getDb, client, log);
+      } catch (e) {
+        log.error(`[kill] Error en ciclo: ${e.message}`);
+      }
+      await new Promise((r) => setTimeout(r, KILL_MONITOR_MS));
+    }
+  };
+  loop().catch((e) => log.error(`[kill] Monitor detenido: ${e.message}`));
 }
 
 function isGucciEvent(ev) {
@@ -719,9 +747,11 @@ module.exports = {
   },
 
   onInit(client, { getDb, log }) {
-    setInterval(() => runMonitor(getDb, client, log), 2 * 60 * 1000);
+    startKillMonitorLoop(getDb, client, log);
     setInterval(() => runGucciMonitor(getDb, client, log), GUCCI_CHECK_MS);
-    log.info('Killboard monitor cada 2 min (imágenes PIL → canvas)');
+    log.info(
+      `Killboard: ciclo al terminar + ${KILL_MONITOR_MS / 1000}s pausa · delay envío ${notificationDelay}s`,
+    );
     log.info(`Gucci Kills cada ${GUCCI_CHECK_MS / 1000}s (≥${fmtGucciFameThreshold()} fama)`);
   },
 
