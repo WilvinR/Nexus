@@ -35,9 +35,16 @@ function font(size, bold = false) {
 /** Máximo tamaño de dibujo (EQUIP_ITEM_SIZE). */
 const ITEM_RENDER_SIZE = 150;
 
+function itemQualityForRender(item) {
+  const raw = item?.Quality;
+  if (raw === 0 || raw === '0') return 0;
+  const n = Number(raw);
+  if (!Number.isNaN(n) && n >= 0 && n <= 5) return n;
+  return 1;
+}
+
 function itemCacheKey(item) {
-  const quality = Math.max(1, Math.min(5, item?.Quality || 1));
-  return `${item.Type}|${quality}`;
+  return `${item.Type}|${itemQualityForRender(item)}`;
 }
 
 function destroyCanvas(canvas) {
@@ -104,6 +111,38 @@ function drawItem(ctx, itemCache, x, y, item, size) {
   ctx.drawImage(img, x, y, size, size);
 }
 
+function drawItemCountBadge(ctx, x, y, size, count) {
+  const n = Number(count);
+  if (!Number.isFinite(n) || n < 1) return;
+
+  const text = n >= 1000 ? formatNumber(n) : String(Math.floor(n));
+  const fontSize =
+    text.length >= 4
+      ? Math.max(12, Math.floor(size * 0.16))
+      : text.length >= 3
+        ? Math.max(13, Math.floor(size * 0.18))
+        : Math.max(15, Math.floor(size * 0.20));
+
+  // Círculo de stack del marco Albion (parte del PNG del render)
+  const cx = x + size * 0.772;
+  const cy = y + size * 0.752;
+  const circleR = Math.max(11, Math.floor(size * 0.105));
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, circleR, 0, Math.PI * 2);
+  ctx.fillStyle = '#2b2b2b';
+  ctx.fill();
+  ctx.font = font(fontSize, true);
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, cx, cy);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.restore();
+}
+
 function pasteItem(ctx, itemCache, x, y, item, size) {
   if (!item) return;
   if (!isRenderableItem(item)) return;
@@ -123,9 +162,10 @@ function pasteItemGhost(ctx, itemCache, x, y, item, size) {
 }
 
 async function fetchItemImageBuffer(item) {
-  const quality = Math.max(1, Math.min(5, item.Quality || 1));
-  const url = `https://render.albiononline.com/v1/item/${item.Type}?quality=${quality}&size=${ITEM_RENDER_SIZE}`;
+  const quality = itemQualityForRender(item);
+  const url = `https://render.albiononline.com/v1/item/${item.Type}.png?quality=${quality}&size=${ITEM_RENDER_SIZE}`;
   const r = await fetch(url, { signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS) });
+  if (r.status === 404) throw new Error('HTTP 404');
   if (r.status !== 200) throw new Error(`HTTP ${r.status}`);
   return Buffer.from(await r.arrayBuffer());
 }
@@ -142,12 +182,14 @@ async function loadItemImage(itemCache, item) {
       const img = await loadImage(buf);
       itemCache.set(key, img);
       return img;
-    } catch {
+    } catch (e) {
+      if (String(e.message).includes('404')) break;
       if (attempt + 1 < IMAGE_FETCH_RETRIES) {
         await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
       }
     }
   }
+  itemCache.set(key, null);
   return null;
 }
 
@@ -156,7 +198,7 @@ function collectEquipmentItems(equipment) {
   return Object.values(eq).filter((it) => it && it.Type);
 }
 
-/** Trofeos / mementos — la API render.albiononline.com devuelve 404. */
+/** Trofeos sin icono en render.albiononline.com */
 const SKIP_ITEM_PREFIXES = ['UNIQUE_FURNITUREITEM_KILLTROPHY'];
 
 function isRenderableItem(item) {
@@ -197,7 +239,7 @@ async function preloadItemImages(itemCache, items) {
   return failed;
 }
 
-async function ensureAllItemImages(itemCache, items) {
+async function ensureRequiredItemImages(itemCache, items) {
   let lastFailed = [];
   for (let attempt = 0; attempt < BUILD_PRELOAD_RETRIES; attempt++) {
     lastFailed = await preloadItemImages(itemCache, items);
@@ -213,9 +255,33 @@ async function ensureAllItemImages(itemCache, items) {
   );
 }
 
+async function preloadOptionalItemImages(itemCache, items) {
+  const list = uniqueRenderableItems(items);
+  if (!list.length) return;
+  await mapWithConcurrency(
+    list,
+    async (item) => {
+      await loadItemImage(itemCache, item);
+    },
+    IMAGE_FETCH_CONCURRENCY,
+  );
+}
+
+function inventoryItemsWithImages(itemCache, inventory) {
+  return inventory.filter((item) => isRenderableItem(item) && getCachedItemImage(itemCache, item));
+}
+
 function getCachedItemImage(itemCache, item) {
   if (!item?.Type) return null;
-  return itemCache.get(itemCacheKey(item)) || null;
+  const key = itemCacheKey(item);
+  if (!itemCache.has(key)) return null;
+  return itemCache.get(key) || null;
+}
+
+function drawInvItem(ctx, itemCache, x, y, item, size) {
+  if (!item?.Type || !getCachedItemImage(itemCache, item)) return;
+  drawItem(ctx, itemCache, x, y, item, size);
+  drawItemCountBadge(ctx, x, y, size, item.Count ?? 1);
 }
 
 async function getItemPrice(itemId) {
@@ -337,11 +403,6 @@ function drawEquipmentGrid(ctx, itemCache, startX, startY, equipment, isKiller, 
   }
 }
 
-function drawInvItem(ctx, itemCache, x, y, item, size) {
-  if (!isRenderableItem(item)) return;
-  drawItem(ctx, itemCache, x, y, item, size);
-}
-
 async function getInvItemPrice(item) {
   try {
     const price = await getItemPrice(item.Type || '');
@@ -383,16 +444,18 @@ async function buildKillNotificationImages(killData, entityConfig) {
 
   const alliedParticipants = getAlliedParticipants(killData);
   const inventory = (victim.Inventory || []).filter((it) => it && it.Type);
-  const imageItems = [
+  const requiredItems = [
     ...collectRenderableEquipmentItems(killer.Equipment),
     ...collectRenderableEquipmentItems(victim.Equipment),
-    ...inventory.filter(isRenderableItem),
     ...alliedParticipants.filter((p) => p.weapon?.Type && isRenderableItem(p.weapon)).map((p) => p.weapon),
   ];
-  await ensureAllItemImages(itemCache, imageItems);
+  await ensureRequiredItemImages(itemCache, requiredItems);
+  await preloadOptionalItemImages(itemCache, inventory);
+  const displayInventory = inventoryItemsWithImages(itemCache, inventory);
 
-  const WIDTH = 1250;
-  let HEIGHT = 900;
+  const BASE_WIDTH = 1250;
+  const MAX_CANVAS_WIDTH = 2000;
+  const TARGET_MAX_HEIGHT = 1500;
   const BG = '#D4B896';
   const TEXT = '#000000';
   const BAR_BG = '#B4A082';
@@ -405,21 +468,29 @@ async function buildKillNotificationImages(killData, entityConfig) {
   const MARGIN_X = 50;
   const MARGIN_TOP = 140;
   const INV_ITEM_SIZE = 120;
-  const INV_ITEMS_PER_ROW = 8;
-  const INV_SPACING = Math.floor((WIDTH - 2 * MARGIN_X) / INV_ITEMS_PER_ROW);
+  const INV_ITEM_GAP = 4;
+  const INV_SPACING = INV_ITEM_SIZE + INV_ITEM_GAP;
+  const EQUIP_AREA_HEIGHT = 4 * EQUIP_SPACING + 50;
+
+  let WIDTH = BASE_WIDTH;
+  let HEIGHT = 900;
+  let INV_ITEMS_PER_ROW = Math.max(1, Math.floor((WIDTH - 2 * MARGIN_X) / INV_SPACING));
+  let invRows = displayInventory.length ? Math.ceil(displayInventory.length / INV_ITEMS_PER_ROW) : 0;
+  let invHeight = invRows > 0 ? 60 + invRows * INV_SPACING + 40 : 0;
+
+  while (WIDTH <= MAX_CANVAS_WIDTH) {
+    INV_ITEMS_PER_ROW = Math.max(1, Math.floor((WIDTH - 2 * MARGIN_X) / INV_SPACING));
+    invRows = displayInventory.length ? Math.ceil(displayInventory.length / INV_ITEMS_PER_ROW) : 0;
+    invHeight = invRows > 0 ? 60 + invRows * INV_SPACING + 40 : 0;
+    HEIGHT = Math.max(900, MARGIN_TOP + EQUIP_AREA_HEIGHT + 80 + invHeight + 60);
+    if (HEIGHT <= TARGET_MAX_HEIGHT || WIDTH >= MAX_CANVAS_WIDTH) break;
+    WIDTH += INV_SPACING;
+  }
+
   const LEFT_PANEL_X = MARGIN_X;
   const RIGHT_GRID_WIDTH = 3 * EQUIP_SPACING;
   const RIGHT_PANEL_X = WIDTH - MARGIN_X - RIGHT_GRID_WIDTH;
   const CENTER_X = WIDTH / 2;
-  const EQUIP_AREA_HEIGHT = 4 * EQUIP_SPACING + 50;
-
-  const invRows = inventory.length
-    ? Math.ceil(inventory.length / INV_ITEMS_PER_ROW)
-    : 0;
-  let invHeight = 0;
-  if (invRows > 0) invHeight = 60 + invRows * INV_SPACING + 40;
-  const totalHeight = MARGIN_TOP + EQUIP_AREA_HEIGHT + 80 + invHeight + 60;
-  HEIGHT = Math.max(totalHeight, HEIGHT);
 
   const canvas = createCanvas(WIDTH, HEIGHT);
   const ctx = canvas.getContext('2d');
@@ -427,8 +498,8 @@ async function buildKillNotificationImages(killData, entityConfig) {
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
   const fontTitle = font(64, true);
-  const fontName = font(32);
-  const fontInfo = font(20);
+  const fontName = font(40, true);
+  const fontInfo = font(26);
   const fontSmall = font(14);
   const fontInvTitle = font(18);
   const fontCenterLabel = font(36);
@@ -480,17 +551,17 @@ async function buildKillNotificationImages(killData, entityConfig) {
     drawCentered(ctx, CENTER_X, 80, zona, fontName, TEXT);
   }
 
-  const infoY = MARGIN_TOP - 10;
+  const infoY = MARGIN_TOP - 28;
   const killerGridCx = LEFT_PANEL_X + Math.floor(1.5 * EQUIP_SPACING);
   const victimGridCx = RIGHT_PANEL_X + Math.floor(1.5 * EQUIP_SPACING);
 
   drawCentered(ctx, killerGridCx, infoY, killerName, fontName, TEXT);
-  drawCentered(ctx, killerGridCx, infoY + 36, killerGuildDisplay, fontInfo, TEXT);
-  drawCentered(ctx, killerGridCx, infoY + 58, `IP: ${Math.round(killerIp)}`, fontInfo, TEXT);
+  drawCentered(ctx, killerGridCx, infoY + 46, killerGuildDisplay, fontInfo, TEXT);
+  drawCentered(ctx, killerGridCx, infoY + 92, `IP: ${Math.round(killerIp)}`, fontInfo, TEXT);
 
   drawCentered(ctx, victimGridCx, infoY, victimName, fontName, TEXT);
-  drawCentered(ctx, victimGridCx, infoY + 36, victimGuildDisplay, fontInfo, TEXT);
-  drawCentered(ctx, victimGridCx, infoY + 58, `IP: ${Math.round(victimIp)}`, fontInfo, TEXT);
+  drawCentered(ctx, victimGridCx, infoY + 46, victimGuildDisplay, fontInfo, TEXT);
+  drawCentered(ctx, victimGridCx, infoY + 92, `IP: ${Math.round(victimIp)}`, fontInfo, TEXT);
 
   const equipYPreview = MARGIN_TOP + 100;
   drawCentered(ctx, CENTER_X, equipYPreview, 'FAMA', fontCenterLabel, '#C81E1E');
@@ -510,7 +581,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
   const invStartPreview = equipYPreview + 4 * EQUIP_SPACING + 40;
   drawCentered(ctx, CENTER_X, invStartPreview - 60, timestampDisplay, fontTs, TEXT);
 
-  const equipY = infoY + 100;
+  const equipY = infoY + 132;
   drawEquipmentGrid(ctx, itemCache, LEFT_PANEL_X, equipY, killer.Equipment, true, EQUIP_SPACING, EQUIP_ITEM_SIZE);
   drawEquipmentGrid(ctx, itemCache, RIGHT_PANEL_X, equipY, victim.Equipment, false, EQUIP_SPACING, EQUIP_ITEM_SIZE);
 
@@ -523,7 +594,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
   ctx.stroke();
 
   let invValue = 0;
-  if (inventory.length) {
+  if (displayInventory.length) {
     ctx.font = fontInvTitle;
     ctx.fillStyle = TEXT;
     ctx.textBaseline = 'top';
@@ -531,7 +602,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
 
     const invX = MARGIN_X;
     const invY = invStartY + 30;
-    const numRows = Math.ceil(inventory.length / INV_ITEMS_PER_ROW);
+    const numRows = Math.ceil(displayInventory.length / INV_ITEMS_PER_ROW);
     ctx.lineWidth = 1;
     for (let rowLine = 1; rowLine <= numRows; rowLine++) {
       const lineY = invY + rowLine * INV_SPACING - 2;
@@ -541,22 +612,22 @@ async function buildKillNotificationImages(killData, entityConfig) {
       ctx.stroke();
     }
 
-    for (let idx = 0; idx < inventory.length; idx++) {
-      const item = inventory[idx];
+    for (let idx = 0; idx < displayInventory.length; idx++) {
+      const item = displayInventory[idx];
       const col = idx % INV_ITEMS_PER_ROW;
       const row = Math.floor(idx / INV_ITEMS_PER_ROW);
       drawInvItem(ctx, itemCache, invX + col * INV_SPACING, invY + row * INV_SPACING, item, INV_ITEM_SIZE);
     }
 
     const invResults = await mapWithConcurrency(
-      inventory,
+      displayInventory,
       (item) => getInvItemPrice(item),
       IMAGE_FETCH_CONCURRENCY,
     );
     invValue = invResults.reduce((s, v) => s + v, 0);
 
     const lastInvY =
-      invY + Math.ceil(inventory.length / INV_ITEMS_PER_ROW) * INV_SPACING + 10;
+      invY + Math.ceil(displayInventory.length / INV_ITEMS_PER_ROW) * INV_SPACING + 10;
     ctx.font = fontCenterLabel;
     ctx.fillText(
       `Valor Inventario: ${formatNumber(invValue)}  |  Total Loot: ${formatNumber(totalEquipmentValue + invValue)}`,

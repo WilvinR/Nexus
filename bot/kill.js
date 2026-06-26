@@ -139,6 +139,10 @@ function isOurDeath(event, entity) {
   return String(victim.Id) === id;
 }
 
+function eventDedupeKey(entity, eventKind, eventId) {
+  return `${entity.id}:${eventKind}:${eventId}`;
+}
+
 async function sendKillNotification(channel, event, entity, log, bypassDedupe = false) {
   const eventId = event.EventId != null ? String(event.EventId) : null;
   const cfg = entityConfig(entity);
@@ -151,7 +155,7 @@ async function sendKillNotification(channel, event, entity, log, bypassDedupe = 
       const eventKind = built.isKill ? 'kill' : 'death';
 
       if (!bypassDedupe && eventId) {
-        const dedupe = `${entity.entity_type}:${entity.albion_entity_id}:${eventKind}:${eventId}`;
+        const dedupe = eventDedupeKey(entity, eventKind, eventId);
         if (recentEvents.has(dedupe)) return true;
       }
 
@@ -186,7 +190,7 @@ async function sendKillNotification(channel, event, entity, log, bypassDedupe = 
       await withNotificationQueue(async () => {
         await sendDiscordMessage(channel, { content: built.content, embeds, files });
         if (!bypassDedupe && eventId) {
-          const dedupe = `${entity.entity_type}:${entity.albion_entity_id}:${eventKind}:${eventId}`;
+          const dedupe = eventDedupeKey(entity, eventKind, eventId);
           recentEvents.set(dedupe, Date.now());
         }
         currentCycleNotifications++;

@@ -10,6 +10,7 @@ const {
   ModalBuilder,
   TextInputBuilder,
   TextInputStyle,
+  MessageFlags,
 } = require('discord.js');
 const { isModuleEnabled } = require('./modules');
 
@@ -170,8 +171,8 @@ function buildControlPanelComponents(channelId) {
     .setCustomId(`${PREFIX}:perm:${channelId}`)
     .setPlaceholder('🔐 Permisos del canal')
     .addOptions(
-      { label: 'Bloquear', description: 'Nadie más puede entrar (@everyone)', value: 'bloquear', emoji: '🔒' },
-      { label: 'Desbloquear', description: 'Permitir entrar a @everyone', value: 'desbloquear', emoji: '🔓' },
+      { label: 'Bloquear', description: 'Nadie más puede entrar', value: 'bloquear', emoji: '🔒' },
+      { label: 'Desbloquear', description: 'Permitir entrar a roles configurados', value: 'desbloquear', emoji: '🔓' },
       { label: 'Permitir', description: 'Permitir a un usuario concreto', value: 'permitir', emoji: '✅' },
       { label: 'Rechazar', description: 'Expulsar y bloquear a un usuario', value: 'rechazar', emoji: '⛔' },
       { label: 'Invitar', description: 'Permitir e invitar a un usuario', value: 'invitar', emoji: '📨' },
@@ -445,7 +446,7 @@ async function handleConfigSelect(ix, getDb, log) {
   const channelId = ix.customId.split(':')[2];
   const tempRow = getTempChannel(getDb, channelId);
   if (!canControlChannel(ix, tempRow)) {
-    await ix.reply({ content: '❌ Solo el creador de la sala o un admin puede usar esto.', ephemeral: true });
+    await ix.reply({ content: '❌ Solo el creador de la sala o un admin puede usar esto.', flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -510,26 +511,52 @@ async function handlePermSelect(ix, getDb) {
   const channelId = ix.customId.split(':')[2];
   const tempRow = getTempChannel(getDb, channelId);
   if (!canControlChannel(ix, tempRow)) {
-    await ix.reply({ content: '❌ Solo el creador de la sala o un admin puede usar esto.', ephemeral: true });
+    await ix.reply({ content: '❌ Solo el creador de la sala o un admin puede usar esto.', flags: MessageFlags.Ephemeral });
     return;
   }
 
   const action = ix.values[0];
   const ch = await ix.guild.channels.fetch(gid(channelId)).catch(() => null);
   if (!ch?.isVoiceBased()) {
-    await ix.reply({ content: '❌ Canal no encontrado.', ephemeral: true });
+    await ix.reply({ content: '❌ Canal no encontrado.', flags: MessageFlags.Ephemeral });
     return;
   }
 
   if (action === 'bloquear') {
+    const cfg = getConfig(getDb, ix.guildId);
     await ch.permissionOverwrites.edit(ix.guild.id, { Connect: false });
-    await ix.reply({ content: '🔒 Canal bloqueado para @everyone.', ephemeral: true });
+    if (isPrivateVoces(cfg?.allowedRoleIds)) {
+      for (const rid of cfg.allowedRoleIds) {
+        await ch.permissionOverwrites.edit(rid, { Connect: false }).catch(() => {});
+      }
+    }
+    await ix.reply({
+      content: '🔒 Canal bloqueado. Nadie más puede entrar.',
+      flags: MessageFlags.Ephemeral,
+    });
     return;
   }
 
   if (action === 'desbloquear') {
-    await ch.permissionOverwrites.edit(ix.guild.id, { Connect: true });
-    await ix.reply({ content: '🔓 Canal desbloqueado.', ephemeral: true });
+    const cfg = getConfig(getDb, ix.guildId);
+    if (isPrivateVoces(cfg?.allowedRoleIds)) {
+      await ch.permissionOverwrites.edit(ix.guild.id, { Connect: false });
+      for (const rid of cfg.allowedRoleIds) {
+        await ch.permissionOverwrites
+          .edit(rid, { ViewChannel: true, Connect: true, Speak: true })
+          .catch(() => {});
+      }
+      await ix.reply({
+        content: '🔓 Roles configurados pueden entrar de nuevo.',
+        flags: MessageFlags.Ephemeral,
+      });
+    } else {
+      await ch.permissionOverwrites.edit(ix.guild.id, { Connect: true, Speak: true });
+      await ix.reply({
+        content: '🔓 Canal desbloqueado. Cualquiera puede entrar.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
     return;
   }
 
@@ -546,7 +573,7 @@ async function handlePermSelect(ix, getDb) {
             .setMaxValues(1),
         ),
       ],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   }
 }
@@ -557,14 +584,14 @@ async function handleUserSelect(ix, getDb, client) {
   const channelId = parts[3];
   const tempRow = getTempChannel(getDb, channelId);
   if (!canControlChannel(ix, tempRow)) {
-    await ix.reply({ content: '❌ Sin permiso.', ephemeral: true });
+    await ix.reply({ content: '❌ Sin permiso.', flags: MessageFlags.Ephemeral });
     return;
   }
 
   const targetId = ix.values[0];
   const ch = await ix.guild.channels.fetch(gid(channelId)).catch(() => null);
   if (!ch?.isVoiceBased()) {
-    await ix.reply({ content: '❌ Canal no encontrado.', ephemeral: true });
+    await ix.reply({ content: '❌ Canal no encontrado.', flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -606,13 +633,13 @@ async function handleModalSubmit(ix, getDb, client, log) {
   const channelId = parts[3];
   const tempRow = getTempChannel(getDb, channelId);
   if (!canControlChannel(ix, tempRow)) {
-    await ix.reply({ content: '❌ Sin permiso.', ephemeral: true });
+    await ix.reply({ content: '❌ Sin permiso.', flags: MessageFlags.Ephemeral });
     return;
   }
 
   const ch = await ix.guild.channels.fetch(gid(channelId)).catch(() => null);
   if (!ch?.isVoiceBased()) {
-    await ix.reply({ content: '❌ Canal no encontrado.', ephemeral: true });
+    await ix.reply({ content: '❌ Canal no encontrado.', flags: MessageFlags.Ephemeral });
     return;
   }
 
@@ -621,20 +648,20 @@ async function handleModalSubmit(ix, getDb, client, log) {
   if (kind === 'nombre') {
     const name = sanitizeChannelName(raw);
     await ch.setName(name);
-    await ix.reply({ content: `📝 Nombre actualizado: **${name}**`, ephemeral: true });
+    await ix.reply({ content: `📝 Nombre actualizado: **${name}**`, flags: MessageFlags.Ephemeral });
     return;
   }
 
   if (kind === 'limite') {
     const n = parseInt(raw, 10);
     if (!Number.isFinite(n) || n < 0 || n > 99) {
-      await ix.reply({ content: '❌ Introduce un número entre 0 y 99.', ephemeral: true });
+      await ix.reply({ content: '❌ Introduce un número entre 0 y 99.', flags: MessageFlags.Ephemeral });
       return;
     }
     await ch.setUserLimit(n);
     await ix.reply({
       content: n === 0 ? '👥 Sin límite de usuarios.' : `👥 Límite: **${n}** usuarios.`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -644,13 +671,13 @@ async function handleModalSubmit(ix, getDb, client, log) {
       await setVoiceChannelStatus(client, channelId, raw);
       await ix.reply({
         content: raw ? `💬 Estado actualizado.` : `💬 Estado eliminado.`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (e) {
       log.warn(`[voces] voice-status ${channelId}: ${e.message}`);
       await ix.reply({
         content: `❌ No se pudo cambiar el estado. ¿El bot tiene permiso de gestionar canales?\n\`${e.message}\``,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   }
@@ -711,7 +738,7 @@ module.exports = {
         const namingMode = ix.options.getString('modo_nombre');
         const allowedRoleIds = collectRolesFromOptions(ix);
 
-        await ix.deferReply({ ephemeral: true });
+        await ix.deferReply({ flags: MessageFlags.Ephemeral });
         try {
           const result = await applyVocesSetup(ix.client, getDb, ix.guildId, log, {
             categoryId: category.id,
