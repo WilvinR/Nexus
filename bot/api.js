@@ -3,7 +3,7 @@ const { MODULES, getGuildModuleStates, setModuleEnabled } = require('./modules')
 const { registerGuildConfigRoutes } = require('./guildConfigRoutes');
 const { quickMemberStats } = require('./memberStats');
 const { registerAdminRoutes, logSystem, isBotOwner, getBotOwnerIds, parseYoutubeId } = require('./adminRoutes');
-const { buildInviteUrl, buildSupportDiscordUrl } = require('./invite');
+const { buildInviteUrl, buildSupportDiscordUrl, getClientId } = require('./invite');
 const { compareLootFiles } = require('./lootComparator');
 
 let server = null;
