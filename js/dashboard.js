@@ -1,4 +1,5 @@
 const NEXUS_API = 'https://nexus-bot.discloud.app';
+const SUPPORT_DISCORD_URL = 'https://discord.gg/qnmyqjB7uc';
 
 let guildsData = [];
 let currentGuildId = null;
@@ -998,6 +999,34 @@ async function runLootCompare() {
   }
 }
 
+function isValidSupportDiscordUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) return false;
+  try {
+    const u = new URL(url.trim());
+    return u.hostname === 'discord.gg' || u.hostname.endsWith('.discord.gg') || u.hostname === 'discord.com';
+  } catch {
+    return false;
+  }
+}
+
+async function initSupportDiscordLink() {
+  const el = document.getElementById('btn-support-discord');
+  if (!el) return;
+  let url = SUPPORT_DISCORD_URL;
+  try {
+    const res = await fetch(`${NEXUS_API.replace(/\/$/, '')}/api/public`, { cache: 'no-store' });
+    if (res.ok) {
+      const data = await res.json();
+      if (isValidSupportDiscordUrl(data.supportDiscord)) url = data.supportDiscord.trim();
+    }
+  } catch {
+    /* fallback local */
+  }
+  if (!isValidSupportDiscordUrl(url)) return;
+  el.href = url;
+  el.classList.remove('hidden');
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   moduleModals = initModuleModals({
     api,
@@ -1048,6 +1077,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('loot-compare-btn')?.addEventListener('click', runLootCompare);
 
   const authFromUrl = NexusAuth.applyTokenFromUrl(showAuthError);
+  initSupportDiscordLink();
   if (authFromUrl === 'token' || NexusAuth.getToken()) {
     loadDashboard();
   } else {

@@ -13,6 +13,17 @@ function getClientId() {
   }
 }
 
+/** Invite permanente al servidor de soporte / comunidad Nexus. */
+const DEFAULT_SUPPORT_DISCORD = 'https://discord.gg/qnmyqjB7uc';
+
+function buildSupportDiscordUrl() {
+  return (
+    process.env.SUPPORT_DISCORD_URL ||
+    process.env.DISCORD_SUPPORT_URL ||
+    DEFAULT_SUPPORT_DISCORD
+  ).trim() || DEFAULT_SUPPORT_DISCORD;
+}
+
 function buildInviteUrl() {
   const custom = process.env.DISCORD_INVITE_URL?.trim();
   if (custom && custom.includes('client_id=')) return custom;
@@ -31,4 +42,11 @@ function isValidInviteUrl(url) {
   return typeof url === 'string' && url.includes('client_id=') && /scope=.*bot/.test(url);
 }
 
-module.exports = { buildInviteUrl, getClientId, isValidInviteUrl, FALLBACK_CLIENT_ID };
+module.exports = {
+  buildInviteUrl,
+  buildSupportDiscordUrl,
+  getClientId,
+  isValidInviteUrl,
+  FALLBACK_CLIENT_ID,
+  DEFAULT_SUPPORT_DISCORD,
+};

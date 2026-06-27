@@ -362,13 +362,44 @@ nav.site-nav.has-badge {
 .hero-buttons {
   margin-top: clamp(28px, 6vw, 60px);
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 14px;
   justify-content: center;
-  flex-wrap: wrap;
   animation: fadeUp 1s 1.4s both;
   width: 100%;
   max-width: 360px;
+  margin-left: auto;
+  margin-right: auto;
   padding: 0 var(--page-pad);
+}
+
+.hero-buttons .btn {
+  width: 100%;
+}
+
+.btn-support-outline {
+  background: transparent;
+  color: #c8d4ff;
+  border: 1px solid rgba(88, 101, 242, 0.55);
+}
+
+.btn-support-outline:hover {
+  background: rgba(88, 101, 242, 0.15);
+  border-color: #5865f2;
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.dash-header-nav-link-external {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.dash-header-nav-link-external:hover {
+  color: #c8d4ff;
+  background: rgba(88, 101, 242, 0.12);
 }
 
 .stats-bar {

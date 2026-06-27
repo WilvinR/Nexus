@@ -2,6 +2,7 @@ const NEXUS_API = 'https://nexus-bot.discloud.app';
 /** ID público de la aplicación Discord (Developer Portal → General) */
 const DISCORD_CLIENT_ID = '1348090006547337318';
 const BOT_INVITE = `https://discord.com/oauth2/authorize?client_id=${DISCORD_CLIENT_ID}&permissions=268568576&scope=bot%20applications.commands`;
+const SUPPORT_DISCORD_URL = 'https://discord.gg/qnmyqjB7uc';
 
 function apiUrl(path) {
   return `${NEXUS_API.replace(/\/$/, '')}${path}`;
@@ -9,6 +10,26 @@ function apiUrl(path) {
 
 function isValidInviteUrl(url) {
   return typeof url === 'string' && url.includes('client_id=') && /scope=.*bot/.test(url);
+}
+
+function isValidSupportDiscordUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) return false;
+  try {
+    const u = new URL(url.trim());
+    return u.hostname === 'discord.gg' || u.hostname.endsWith('.discord.gg') || u.hostname === 'discord.com';
+  } catch {
+    return false;
+  }
+}
+
+function setSupportDiscordLinks(url) {
+  if (!isValidSupportDiscordUrl(url)) return;
+  const el = document.getElementById('btn-support-discord');
+  if (!el) return;
+  el.href = url.trim();
+  el.target = '_blank';
+  el.rel = 'noopener noreferrer';
+  el.classList.remove('hidden');
 }
 
 function setInviteLinks(url) {
@@ -24,6 +45,7 @@ function setInviteLinks(url) {
 
 async function loadPublicStats() {
   setInviteLinks(BOT_INVITE);
+  setSupportDiscordLinks(SUPPORT_DISCORD_URL);
 
   const el = document.getElementById('srv-count');
   const botEl = document.getElementById('bot-status');
@@ -37,6 +59,7 @@ async function loadPublicStats() {
         animateCount(el, data.guilds ?? 0);
         if (botEl) botEl.textContent = data.ready ? 'Online' : 'Conectando…';
         if (data.invite && isValidInviteUrl(data.invite)) setInviteLinks(data.invite);
+        if (data.supportDiscord) setSupportDiscordLinks(data.supportDiscord);
         if (botEl && typeof data.guilds === 'number') {
           botEl.title = `${data.guilds} servidores con Nexus`;
         }

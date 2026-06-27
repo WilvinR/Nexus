@@ -453,9 +453,7 @@ async function buildKillNotificationImages(killData, entityConfig) {
   await preloadOptionalItemImages(itemCache, inventory);
   const displayInventory = inventoryItemsWithImages(itemCache, inventory);
 
-  const BASE_WIDTH = 1250;
-  const MAX_CANVAS_WIDTH = 2000;
-  const TARGET_MAX_HEIGHT = 1500;
+  const WIDTH = 1250;
   const BG = '#D4B896';
   const TEXT = '#000000';
   const BAR_BG = '#B4A082';
@@ -470,22 +468,14 @@ async function buildKillNotificationImages(killData, entityConfig) {
   const INV_ITEM_SIZE = 120;
   const INV_ITEM_GAP = 4;
   const INV_SPACING = INV_ITEM_SIZE + INV_ITEM_GAP;
+  const INV_ITEMS_PER_ROW = Math.max(1, Math.floor((WIDTH - 2 * MARGIN_X) / INV_SPACING));
   const EQUIP_AREA_HEIGHT = 4 * EQUIP_SPACING + 50;
 
-  let WIDTH = BASE_WIDTH;
-  let HEIGHT = 900;
-  let INV_ITEMS_PER_ROW = Math.max(1, Math.floor((WIDTH - 2 * MARGIN_X) / INV_SPACING));
-  let invRows = displayInventory.length ? Math.ceil(displayInventory.length / INV_ITEMS_PER_ROW) : 0;
-  let invHeight = invRows > 0 ? 60 + invRows * INV_SPACING + 40 : 0;
-
-  while (WIDTH <= MAX_CANVAS_WIDTH) {
-    INV_ITEMS_PER_ROW = Math.max(1, Math.floor((WIDTH - 2 * MARGIN_X) / INV_SPACING));
-    invRows = displayInventory.length ? Math.ceil(displayInventory.length / INV_ITEMS_PER_ROW) : 0;
-    invHeight = invRows > 0 ? 60 + invRows * INV_SPACING + 40 : 0;
-    HEIGHT = Math.max(900, MARGIN_TOP + EQUIP_AREA_HEIGHT + 80 + invHeight + 60);
-    if (HEIGHT <= TARGET_MAX_HEIGHT || WIDTH >= MAX_CANVAS_WIDTH) break;
-    WIDTH += INV_SPACING;
-  }
+  const invRows = displayInventory.length
+    ? Math.ceil(displayInventory.length / INV_ITEMS_PER_ROW)
+    : 0;
+  const invHeight = invRows > 0 ? 60 + invRows * INV_SPACING + 40 : 0;
+  const HEIGHT = Math.max(900, MARGIN_TOP + EQUIP_AREA_HEIGHT + 80 + invHeight + 60);
 
   const LEFT_PANEL_X = MARGIN_X;
   const RIGHT_GRID_WIDTH = 3 * EQUIP_SPACING;

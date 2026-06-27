@@ -3,14 +3,11 @@ const { MODULES, getGuildModuleStates, setModuleEnabled } = require('./modules')
 const { registerGuildConfigRoutes } = require('./guildConfigRoutes');
 const { quickMemberStats } = require('./memberStats');
 const { registerAdminRoutes, logSystem, isBotOwner, getBotOwnerIds, parseYoutubeId } = require('./adminRoutes');
-const { buildInviteUrl, getClientId } = require('./invite');
+const { buildInviteUrl, buildSupportDiscordUrl } = require('./invite');
 const { compareLootFiles } = require('./lootComparator');
 
 let server = null;
 const userGuildCache = new Map();
-let lastGuildFetchWarnAt = 0;
-const GUILD_CACHE_MS = Math.max(60_000, parseInt(process.env.OAUTH_GUILD_CACHE_MS || '300000', 10) || 300_000);
-const GUILD_CACHE_STALE_MS = Math.max(GUILD_CACHE_MS, GUILD_CACHE_MS * 2);
 
 function ownersOnly() {
   return process.env.DASHBOARD_OWNERS_ONLY !== 'false';
@@ -54,17 +51,11 @@ function canManageGuild(g) {
 async function fetchUserGuilds(session, log) {
   const key = session.token;
   const hit = userGuildCache.get(key);
-  const age = hit ? Date.now() - hit.at : Infinity;
-  if (hit && age < GUILD_CACHE_MS) return hit.guilds;
+  if (hit && Date.now() - hit.at < 120_000) return hit.guilds;
 
   const guilds = await discordApi('/users/@me/guilds', session.access_token);
   if (!guilds) {
-    if (hit && age < GUILD_CACHE_STALE_MS) return hit.guilds;
-    const now = Date.now();
-    if (now - lastGuildFetchWarnAt >= 120_000) {
-      lastGuildFetchWarnAt = now;
-      log.warn('Discord /users/@me/guilds falló (usando caché si existe)');
-    }
+    log.warn('Discord /users/@me/guilds falló');
     return hit?.guilds ?? null;
   }
   userGuildCache.set(key, { guilds, at: Date.now() });
@@ -219,12 +210,14 @@ function start(client, log, getDb, hooks = {}) {
 
   app.get('/api/public', (_req, res) => {
     const web = (process.env.WEB_URL || '').replace(/\/$/, '');
+    const supportDiscord = buildSupportDiscordUrl();
     res.json({
       ok: true,
       bot: client.user?.tag ?? null,
       ready: client.isReady?.() ?? false,
       guilds: client.guilds?.cache?.size ?? 0,
       invite: buildInviteUrl() || null,
+      supportDiscord,
       loginUrl: buildLoginUrl(`${web}/dashboard.html`),
       webUrl: web || null,
     });

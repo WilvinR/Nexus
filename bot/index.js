@@ -31,7 +31,7 @@ const { startRamMonitor } = require('./ramMonitor');
 const memoryDiagnostics = require('./memoryDiagnostics');
 const killImages = require('./killImages');
 const { logCommand, ensureGuildMeta, startStatsScheduler } = require('./stats');
-const { buildInviteUrl } = require('./invite');
+const { buildInviteUrl, buildSupportDiscordUrl } = require('./invite');
 
 const modulos = [require('./registro'), kill, moderacion, eventos, sanciones, battle, bal, utilidad, mercado, lootCompare, voces];
 commandSync.init(modulos, logs);
@@ -389,6 +389,7 @@ const WELCOME_BANNER = 'nexus-welcome-banner.png';
 function buildWelcomeDmPayload() {
   const web = (process.env.WEB_URL || 'https://nexus-two-swart.vercel.app').replace(/\/$/, '');
   const invite = buildInviteUrl();
+  const supportDiscord = buildSupportDiscordUrl();
   const bannerPath = path.join(__dirname, 'assets', WELCOME_BANNER);
 
   const embed = new EmbedBuilder()
@@ -424,7 +425,8 @@ function buildWelcomeDmPayload() {
         name: '\u200b',
         value:
           `🌐 **Dashboard Web** → [Abrir Dashboard](${web})\n` +
-          `🔗 **Invitar Nexus** → [Añadir a otro servidor](${invite})`,
+          `🔗 **Invitar Nexus** → [Añadir a otro servidor](${invite})\n` +
+          `💬 **Discord de soporte** → [Unirte a la comunidad](${supportDiscord})`,
         inline: false,
       },
     )
