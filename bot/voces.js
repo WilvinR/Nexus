@@ -36,12 +36,10 @@ function parseRoleIds(json) {
   }
 }
 
-function getConfig(getDb, guildId) {
-  const row = getDb()
-    .prepare('SELECT * FROM voces_config WHERE guild_id = ?')
-    .get(gid(guildId));
+function hubFromRow(row) {
   if (!row) return null;
   return {
+    id: row.id,
     guildId: row.guild_id,
     categoryId: row.category_id,
     hubChannelId: row.hub_channel_id,
@@ -49,38 +47,96 @@ function getConfig(getDb, guildId) {
     allowedRoleIds: parseRoleIds(row.allowed_role_ids),
     sequenceCounter: row.sequence_counter || 0,
     enabled: row.enabled === 1,
+    createdAt: row.created_at,
   };
 }
 
-function saveConfig(getDb, guildId, data) {
-  getDb()
+function listHubs(getDb, guildId) {
+  return getDb()
+    .prepare('SELECT * FROM voces_hubs WHERE guild_id = ? ORDER BY id ASC')
+    .all(gid(guildId))
+    .map(hubFromRow);
+}
+
+function listEnabledHubs(getDb, guildId) {
+  return listHubs(getDb, guildId).filter((h) => h.enabled && h.hubChannelId);
+}
+
+function getHubById(getDb, hubId) {
+  const row = getDb().prepare('SELECT * FROM voces_hubs WHERE id = ?').get(Number(hubId));
+  return hubFromRow(row);
+}
+
+function getHubByChannelId(getDb, channelId) {
+  const row = getDb()
+    .prepare('SELECT * FROM voces_hubs WHERE hub_channel_id = ?')
+    .get(gid(channelId));
+  return hubFromRow(row);
+}
+
+function getHubForTemp(getDb, tempRow) {
+  if (!tempRow?.hub_id) return null;
+  return getHubById(getDb, tempRow.hub_id);
+}
+
+function insertHubRow(getDb, data) {
+  const r = getDb()
     .prepare(`
-      INSERT INTO voces_config (
-        guild_id, category_id, hub_channel_id, naming_mode, allowed_role_ids, sequence_counter, enabled
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(guild_id) DO UPDATE SET
-        category_id = excluded.category_id,
-        hub_channel_id = excluded.hub_channel_id,
-        naming_mode = excluded.naming_mode,
-        allowed_role_ids = excluded.allowed_role_ids,
-        sequence_counter = excluded.sequence_counter,
-        enabled = excluded.enabled
+      INSERT INTO voces_hubs (
+        guild_id, hub_channel_id, category_id, naming_mode, allowed_role_ids, sequence_counter, enabled, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
-      gid(guildId),
-      data.categoryId ? gid(data.categoryId) : null,
-      data.hubChannelId ? gid(data.hubChannelId) : null,
+      gid(data.guildId),
+      gid(data.hubChannelId),
+      gid(data.categoryId),
       data.namingMode || 'username',
       JSON.stringify(data.allowedRoleIds || []),
       data.sequenceCounter ?? 0,
       data.enabled === false ? 0 : 1,
+      data.createdAt ?? Date.now(),
     );
+  return getHubById(getDb, r.lastInsertRowid);
 }
 
-function setSequenceCounter(getDb, guildId, value) {
+function updateHubRow(getDb, hubId, data) {
+  const prev = getHubById(getDb, hubId);
+  if (!prev) return null;
   getDb()
-    .prepare('UPDATE voces_config SET sequence_counter = ? WHERE guild_id = ?')
-    .run(value, gid(guildId));
+    .prepare(`
+      UPDATE voces_hubs SET
+        hub_channel_id = ?,
+        category_id = ?,
+        naming_mode = ?,
+        allowed_role_ids = ?,
+        sequence_counter = ?,
+        enabled = ?
+      WHERE id = ?
+    `)
+    .run(
+      data.hubChannelId != null ? gid(data.hubChannelId) : gid(prev.hubChannelId),
+      data.categoryId != null ? gid(data.categoryId) : gid(prev.categoryId),
+      data.namingMode != null ? data.namingMode : prev.namingMode,
+      JSON.stringify(data.allowedRoleIds != null ? data.allowedRoleIds : prev.allowedRoleIds),
+      data.sequenceCounter != null ? data.sequenceCounter : prev.sequenceCounter,
+      data.enabled === false ? 0 : data.enabled === true ? 1 : prev.enabled ? 1 : 0,
+      Number(hubId),
+    );
+  return getHubById(getDb, hubId);
+}
+
+function deleteHubRow(getDb, hubId) {
+  getDb().prepare('DELETE FROM voces_hubs WHERE id = ?').run(Number(hubId));
+}
+
+/** @deprecated usar listHubs — compatibilidad mínima */
+function getConfig(getDb, guildId) {
+  const hubs = listHubs(getDb, guildId);
+  return hubs[0] || null;
+}
+
+function setSequenceCounter(getDb, hubId, value) {
+  getDb().prepare('UPDATE voces_hubs SET sequence_counter = ? WHERE id = ?').run(value, Number(hubId));
 }
 
 function getTempChannel(getDb, channelId) {
@@ -95,21 +151,28 @@ function listActiveTempChannels(getDb, guildId) {
     .all(gid(guildId));
 }
 
+function listActiveTempChannelsForHub(getDb, hubId) {
+  return getDb()
+    .prepare('SELECT * FROM voces_temp_channels WHERE hub_id = ?')
+    .all(Number(hubId));
+}
+
 function getTempByOwner(getDb, guildId, ownerId) {
   return getDb()
     .prepare('SELECT * FROM voces_temp_channels WHERE guild_id = ? AND owner_id = ?')
     .get(gid(guildId), gid(ownerId));
 }
 
-function insertTempChannel(getDb, { channelId, guildId, ownerId, sequenceNumber, controlMessageId }) {
+function insertTempChannel(getDb, { channelId, guildId, hubId, ownerId, sequenceNumber, controlMessageId }) {
   getDb()
     .prepare(`
-      INSERT INTO voces_temp_channels (channel_id, guild_id, owner_id, sequence_number, control_message_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO voces_temp_channels (channel_id, guild_id, hub_id, owner_id, sequence_number, control_message_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       gid(channelId),
       gid(guildId),
+      hubId != null ? Number(hubId) : null,
       gid(ownerId),
       sequenceNumber ?? null,
       controlMessageId ? gid(controlMessageId) : null,
@@ -121,10 +184,10 @@ function deleteTempChannelRow(getDb, channelId) {
   getDb().prepare('DELETE FROM voces_temp_channels WHERE channel_id = ?').run(gid(channelId));
 }
 
-function nextSequenceNumber(getDb, guildId) {
-  const cfg = getConfig(getDb, guildId);
-  const peak = cfg?.sequenceCounter || 0;
-  const active = listActiveTempChannels(getDb, guildId);
+function nextSequenceNumber(getDb, hubId) {
+  const hub = getHubById(getDb, hubId);
+  const peak = hub?.sequenceCounter || 0;
+  const active = listActiveTempChannelsForHub(getDb, hubId);
   const peakInUse = active.some((r) => r.sequence_number === peak);
   if (peak > 0 && !peakInUse) return peak;
   return peak + 1;
@@ -286,7 +349,7 @@ function buildTempOverwrites(guild, ownerId, allowedRoleIds) {
   return overwrites;
 }
 
-async function ensureHubChannel(client, getDb, guildId, log, { categoryId, allowedRoleIds, existingHubId }) {
+async function createHubChannel(client, guildId, log, { categoryId, allowedRoleIds }) {
   const guild = await client.guilds.fetch(gid(guildId)).catch(() => null);
   if (!guild) throw new Error('Servidor no encontrado');
 
@@ -301,56 +364,131 @@ async function ensureHubChannel(client, getDb, guildId, log, { categoryId, allow
       : null;
   if (!parent) throw new Error('Categoría no válida');
 
-  let hub = existingHubId ? guild.channels.cache.get(gid(existingHubId)) : null;
-  if (hub && hub.type !== ChannelType.GuildVoice) hub = null;
-
-  if (hub) {
-    await hub.edit({ name: HUB_NAME, parent, permissionOverwrites: buildHubOverwrites(guild, allowedRoleIds) });
-  } else {
-    hub = await guild.channels.create({
-      name: HUB_NAME,
-      type: ChannelType.GuildVoice,
-      parent,
-      reason: 'Nexus — hub auto voz',
-      permissionOverwrites: buildHubOverwrites(guild, allowedRoleIds),
-    });
-  }
+  const hub = await guild.channels.create({
+    name: HUB_NAME,
+    type: ChannelType.GuildVoice,
+    parent,
+    reason: 'Nexus — hub auto voz',
+    permissionOverwrites: buildHubOverwrites(guild, allowedRoleIds),
+  });
 
   return hub.id;
 }
 
-async function applyVocesSetup(client, getDb, guildId, log, opts) {
+async function syncHubChannel(client, guildId, log, hub) {
+  const guild = await client.guilds.fetch(gid(guildId)).catch(() => null);
+  if (!guild) throw new Error('Servidor no encontrado');
+
+  const me = guild.members.me;
+  if (!me?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+    throw new Error('El bot necesita permiso **Gestionar canales**');
+  }
+
+  const parent =
+    hub.categoryId && guild.channels.cache.get(gid(hub.categoryId))?.type === ChannelType.GuildCategory
+      ? gid(hub.categoryId)
+      : null;
+  if (!parent) throw new Error('Categoría no válida');
+
+  let channel = hub.hubChannelId ? guild.channels.cache.get(gid(hub.hubChannelId)) : null;
+  if (channel && channel.type !== ChannelType.GuildVoice) channel = null;
+
+  if (channel) {
+    await channel.edit({
+      parent,
+      permissionOverwrites: buildHubOverwrites(guild, hub.allowedRoleIds),
+    });
+    return channel.id;
+  }
+
+  return createHubChannel(client, guildId, log, {
+    categoryId: hub.categoryId,
+    allowedRoleIds: hub.allowedRoleIds,
+  });
+}
+
+async function createHub(client, getDb, guildId, log, opts) {
   const { categoryId, namingMode, allowedRoleIds = [], enabled = true } = opts;
   if (!categoryId) throw new Error('La categoría es obligatoria');
 
-  const prev = getConfig(getDb, guildId);
-  const hubChannelId = await ensureHubChannel(client, getDb, guildId, log, {
-    categoryId,
-    allowedRoleIds,
-    existingHubId: prev?.hubChannelId,
-  });
-
-  saveConfig(getDb, guildId, {
-    categoryId,
+  const hubChannelId = await createHubChannel(client, guildId, log, { categoryId, allowedRoleIds });
+  const hub = insertHubRow(getDb, {
+    guildId,
     hubChannelId,
+    categoryId,
     namingMode: namingMode === 'sequence' ? 'sequence' : 'username',
     allowedRoleIds,
-    sequenceCounter: prev?.sequenceCounter ?? 0,
+    sequenceCounter: 0,
     enabled,
   });
 
-  return { hubChannelId, namingMode, allowedRoleIds };
+  return hub;
+}
+
+async function updateHub(client, getDb, guildId, hubId, log, opts) {
+  const prev = getHubById(getDb, hubId);
+  if (!prev || gid(prev.guildId) !== gid(guildId)) throw new Error('Hub no encontrado');
+
+  const categoryId = opts.categoryId != null ? gid(opts.categoryId) : prev.categoryId;
+  const namingMode = opts.namingMode === 'sequence' ? 'sequence' : opts.namingMode === 'username' ? 'username' : prev.namingMode;
+  const allowedRoleIds = Array.isArray(opts.allowedRoleIds) ? opts.allowedRoleIds : prev.allowedRoleIds;
+  const enabled = opts.enabled !== undefined ? opts.enabled !== false : prev.enabled;
+
+  const draft = {
+    ...prev,
+    categoryId,
+    namingMode,
+    allowedRoleIds,
+    enabled,
+  };
+
+  const hubChannelId = await syncHubChannel(client, guildId, log, draft);
+  return updateHubRow(getDb, hubId, {
+    hubChannelId,
+    categoryId,
+    namingMode,
+    allowedRoleIds,
+    enabled,
+  });
+}
+
+async function deleteHub(client, getDb, guildId, hubId, log) {
+  const hub = getHubById(getDb, hubId);
+  if (!hub || gid(hub.guildId) !== gid(guildId)) throw new Error('Hub no encontrado');
+
+  if (hub.hubChannelId) {
+    try {
+      const ch = await client.channels.fetch(gid(hub.hubChannelId)).catch(() => null);
+      if (ch) await ch.delete('Nexus — eliminar hub auto voz');
+    } catch (e) {
+      log.warn(`[voces] Borrar hub ${hub.hubChannelId}: ${e.message}`);
+    }
+  }
+
+  deleteHubRow(getDb, hubId);
+}
+
+/** Compat: crear hub (antes applyVocesSetup reemplazaba el único hub) */
+async function applyVocesSetup(client, getDb, guildId, log, opts) {
+  const hub = await createHub(client, getDb, guildId, log, opts);
+  return {
+    hubId: hub.id,
+    hubChannelId: hub.hubChannelId,
+    namingMode: hub.namingMode,
+    allowedRoleIds: hub.allowedRoleIds,
+  };
 }
 
 async function deleteTempChannel(client, getDb, guildId, channelId, log) {
   const row = getTempChannel(getDb, channelId);
   if (!row) return;
 
+  const hubId = row.hub_id;
   deleteTempChannelRow(getDb, channelId);
 
-  const remaining = listActiveTempChannels(getDb, guildId);
-  if (!remaining.length) {
-    setSequenceCounter(getDb, guildId, 0);
+  if (hubId) {
+    const remaining = listActiveTempChannelsForHub(getDb, hubId);
+    if (!remaining.length) setSequenceCounter(getDb, hubId, 0);
   }
 
   try {
@@ -361,7 +499,7 @@ async function deleteTempChannel(client, getDb, guildId, channelId, log) {
   }
 }
 
-async function createTempChannel(client, getDb, member, cfg, log) {
+async function createTempChannel(client, getDb, member, hub, log) {
   const guild = member.guild;
   const guildId = guild.id;
   const userId = member.id;
@@ -389,11 +527,11 @@ async function createTempChannel(client, getDb, member, cfg, log) {
     let channelName;
     let sequenceNumber = null;
 
-    if (cfg.namingMode === 'sequence') {
-      sequenceNumber = nextSequenceNumber(getDb, guildId);
+    if (hub.namingMode === 'sequence') {
+      sequenceNumber = nextSequenceNumber(getDb, hub.id);
       channelName = `Sala ${sequenceNumber}`;
-      const current = getConfig(getDb, guildId);
-      setSequenceCounter(getDb, guildId, Math.max(current?.sequenceCounter || 0, sequenceNumber));
+      const current = getHubById(getDb, hub.id);
+      setSequenceCounter(getDb, hub.id, Math.max(current?.sequenceCounter || 0, sequenceNumber));
     } else {
       channelName = sanitizeChannelName(member.displayName || member.user.username);
     }
@@ -401,9 +539,9 @@ async function createTempChannel(client, getDb, member, cfg, log) {
     const tempChannel = await guild.channels.create({
       name: channelName,
       type: ChannelType.GuildVoice,
-      parent: cfg.categoryId,
+      parent: hub.categoryId,
       reason: `Nexus auto voz — ${member.user.tag}`,
-      permissionOverwrites: buildTempOverwrites(guild, userId, cfg.allowedRoleIds),
+      permissionOverwrites: buildTempOverwrites(guild, userId, hub.allowedRoleIds),
     });
 
     const controlMessageId = await sendControlPanel(client, tempChannel, userId, log);
@@ -411,6 +549,7 @@ async function createTempChannel(client, getDb, member, cfg, log) {
     insertTempChannel(getDb, {
       channelId: tempChannel.id,
       guildId,
+      hubId: hub.id,
       ownerId: userId,
       sequenceNumber,
       controlMessageId,
@@ -423,12 +562,12 @@ async function createTempChannel(client, getDb, member, cfg, log) {
   }
 }
 
-async function handleHubJoin(client, getDb, member, cfg, log) {
-  if (!memberHasAllowedRole(member, cfg.allowedRoleIds)) {
+async function handleHubJoin(client, getDb, member, hub, log) {
+  if (!memberHasAllowedRole(member, hub.allowedRoleIds)) {
     await member.voice.disconnect('Sin rol para crear salas de voz').catch(() => {});
     return;
   }
-  await createTempChannel(client, getDb, member, cfg, log);
+  await createTempChannel(client, getDb, member, hub, log);
 }
 
 async function handleTempLeave(client, getDb, guildId, channelId, log) {
@@ -440,6 +579,10 @@ async function handleTempLeave(client, getDb, guildId, channelId, log) {
   if (ch.members.size === 0) {
     await deleteTempChannel(client, getDb, guildId, channelId, log);
   }
+}
+
+function hubChannelIdSet(hubs) {
+  return new Set(hubs.map((h) => gid(h.hubChannelId)).filter(Boolean));
 }
 
 async function handleConfigSelect(ix, getDb, log) {
@@ -515,6 +658,8 @@ async function handlePermSelect(ix, getDb) {
     return;
   }
 
+  const hub = getHubForTemp(getDb, tempRow);
+
   const action = ix.values[0];
   const ch = await ix.guild.channels.fetch(gid(channelId)).catch(() => null);
   if (!ch?.isVoiceBased()) {
@@ -523,10 +668,9 @@ async function handlePermSelect(ix, getDb) {
   }
 
   if (action === 'bloquear') {
-    const cfg = getConfig(getDb, ix.guildId);
     await ch.permissionOverwrites.edit(ix.guild.id, { Connect: false });
-    if (isPrivateVoces(cfg?.allowedRoleIds)) {
-      for (const rid of cfg.allowedRoleIds) {
+    if (hub && isPrivateVoces(hub.allowedRoleIds)) {
+      for (const rid of hub.allowedRoleIds) {
         await ch.permissionOverwrites.edit(rid, { Connect: false }).catch(() => {});
       }
     }
@@ -538,10 +682,9 @@ async function handlePermSelect(ix, getDb) {
   }
 
   if (action === 'desbloquear') {
-    const cfg = getConfig(getDb, ix.guildId);
-    if (isPrivateVoces(cfg?.allowedRoleIds)) {
+    if (hub && isPrivateVoces(hub.allowedRoleIds)) {
       await ch.permissionOverwrites.edit(ix.guild.id, { Connect: false });
-      for (const rid of cfg.allowedRoleIds) {
+      for (const rid of hub.allowedRoleIds) {
         await ch.permissionOverwrites
           .edit(rid, { ViewChannel: true, Connect: true, Speak: true })
           .catch(() => {});
@@ -692,83 +835,148 @@ function collectRolesFromOptions(ix) {
   return [...new Set(ids)];
 }
 
+function formatHubAccess(allowedRoleIds) {
+  return isPrivateVoces(allowedRoleIds)
+    ? `Privado — ${allowedRoleIds.map((id) => `<@&${id}>`).join(', ')}`
+    : 'Público — cualquier miembro del servidor';
+}
+
 const configurarAutovoz = new SlashCommandBuilder()
   .setName('configurar_autovoz')
-  .setDescription('Configura canales de voz automáticos (join-to-create)')
+  .setDescription('Canales de voz automáticos (join-to-create)')
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-  .addChannelOption((o) =>
-    o
-      .setName('categoria')
-      .setDescription('Categoría donde se creará el hub y las salas')
-      .addChannelTypes(ChannelType.GuildCategory)
-      .setRequired(true),
+  .addSubcommand((sc) =>
+    sc
+      .setName('crear')
+      .setDescription('Añade un nuevo hub ➕ Crear canal')
+      .addChannelOption((o) =>
+        o
+          .setName('categoria')
+          .setDescription('Categoría del hub y salas temporales')
+          .addChannelTypes(ChannelType.GuildCategory)
+          .setRequired(true),
+      )
+      .addStringOption((o) =>
+        o
+          .setName('modo_nombre')
+          .setDescription('Cómo nombrar las salas nuevas')
+          .setRequired(true)
+          .addChoices(
+            { name: 'Por nombre del creador', value: 'username' },
+            { name: 'Por número secuencial', value: 'sequence' },
+          ),
+      )
+      .addRoleOption((o) =>
+        o.setName('rol').setDescription('Rol con acceso (opcional; sin roles = público)').setRequired(false),
+      )
+      .addRoleOption((o) => o.setName('rol_2').setDescription('Rol adicional (opcional)'))
+      .addRoleOption((o) => o.setName('rol_3').setDescription('Rol adicional (opcional)'))
+      .addRoleOption((o) => o.setName('rol_4').setDescription('Rol adicional (opcional)'))
+      .addRoleOption((o) => o.setName('rol_5').setDescription('Rol adicional (opcional)')),
   )
-  .addStringOption((o) =>
-    o
-      .setName('modo_nombre')
-      .setDescription('Cómo nombrar las salas nuevas')
-      .setRequired(true)
-      .addChoices(
-        { name: 'Por nombre del creador', value: 'username' },
-        { name: 'Por número secuencial', value: 'sequence' },
+  .addSubcommand((sc) => sc.setName('listar').setDescription('Muestra los hubs de auto voz configurados'))
+  .addSubcommand((sc) =>
+    sc
+      .setName('eliminar')
+      .setDescription('Elimina un hub de auto voz')
+      .addChannelOption((o) =>
+        o
+          .setName('hub')
+          .setDescription('Canal hub a eliminar')
+          .addChannelTypes(ChannelType.GuildVoice)
+          .setRequired(true),
       ),
-  )
-  .addRoleOption((o) =>
-    o
-      .setName('rol')
-      .setDescription('Rol con acceso (opcional; sin roles = público)')
-      .setRequired(false),
-  )
-  .addRoleOption((o) => o.setName('rol_2').setDescription('Rol adicional (opcional)'))
-  .addRoleOption((o) => o.setName('rol_3').setDescription('Rol adicional (opcional)'))
-  .addRoleOption((o) => o.setName('rol_4').setDescription('Rol adicional (opcional)'))
-  .addRoleOption((o) => o.setName('rol_5').setDescription('Rol adicional (opcional)'));
+  );
+
+async function runConfigurarAutovoz(ix, { getDb, log }) {
+  const sub = ix.options.getSubcommand();
+
+  if (sub === 'listar') {
+    const hubs = listHubs(getDb, ix.guildId);
+    if (!hubs.length) {
+      await ix.reply({ content: 'No hay hubs de auto voz configurados.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    const lines = hubs.map((h) => {
+      const mode = h.namingMode === 'sequence' ? 'Secuencial' : 'Nombre creador';
+      const st = h.enabled ? '✅' : '⏸';
+      const ch = h.hubChannelId ? `<#${h.hubChannelId}>` : '—';
+      return `${st} **#${h.id}** ${ch} · cat \`${h.categoryId}\` · ${mode} · ${formatHubAccess(h.allowedRoleIds)}`;
+    });
+    await ix.reply({
+      content: `**Hubs auto voz (${hubs.length})**\n${lines.join('\n')}`,
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  if (sub === 'eliminar') {
+    const ch = ix.options.getChannel('hub');
+    const hub = getHubByChannelId(getDb, ch.id);
+    if (!hub || gid(hub.guildId) !== gid(ix.guildId)) {
+      await ix.reply({ content: '❌ Ese canal no es un hub de auto voz de Nexus.', flags: MessageFlags.Ephemeral });
+      return;
+    }
+    await ix.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      await deleteHub(ix.client, getDb, ix.guildId, hub.id, log);
+      await ix.editReply({ content: `✅ Hub eliminado (<#${ch.id}>).` });
+    } catch (e) {
+      await ix.editReply({ content: `❌ ${e.message}` });
+    }
+    return;
+  }
+
+  if (sub === 'crear') {
+    const category = ix.options.getChannel('categoria');
+    const namingMode = ix.options.getString('modo_nombre');
+    const allowedRoleIds = collectRolesFromOptions(ix);
+
+    await ix.deferReply({ flags: MessageFlags.Ephemeral });
+    try {
+      const hub = await createHub(ix.client, getDb, ix.guildId, log, {
+        categoryId: category.id,
+        namingMode,
+        allowedRoleIds,
+        enabled: true,
+      });
+      const modeLabel = hub.namingMode === 'sequence' ? 'Número secuencial' : 'Nombre del creador';
+      await ix.editReply({
+        content:
+          `✅ **Hub auto voz** creado (#${hub.id})\n` +
+          `📁 Categoría: **${category.name}**\n` +
+          `📝 Modo nombre: **${modeLabel}**\n` +
+          `🔐 Acceso: ${formatHubAccess(hub.allowedRoleIds)}\n` +
+          `🔊 Hub: <#${hub.hubChannelId}> (\`${HUB_NAME}\`)`,
+      });
+    } catch (e) {
+      await ix.editReply({ content: `❌ ${e.message}` });
+    }
+  }
+}
 
 module.exports = {
   id: 'voces',
+  listHubs,
+  getHubById,
+  getHubByChannelId,
   getConfig,
-  saveConfig,
+  createHub,
+  updateHub,
+  deleteHub,
   applyVocesSetup,
 
   commands: [
     {
       data: configurarAutovoz,
-      async run(ix, { getDb, log }) {
-        const category = ix.options.getChannel('categoria');
-        const namingMode = ix.options.getString('modo_nombre');
-        const allowedRoleIds = collectRolesFromOptions(ix);
-
-        await ix.deferReply({ flags: MessageFlags.Ephemeral });
-        try {
-          const result = await applyVocesSetup(ix.client, getDb, ix.guildId, log, {
-            categoryId: category.id,
-            namingMode,
-            allowedRoleIds,
-            enabled: true,
-          });
-          const modeLabel =
-            result.namingMode === 'sequence' ? 'Número secuencial' : 'Nombre del creador';
-          const accessLabel = isPrivateVoces(result.allowedRoleIds)
-            ? `Privado — ${result.allowedRoleIds.map((id) => `<@&${id}>`).join(', ')}`
-            : 'Público — cualquier miembro del servidor';
-          await ix.editReply({
-            content:
-              `✅ **Auto voz** configurado\n` +
-              `📁 Categoría: **${category.name}**\n` +
-              `📝 Modo nombre: **${modeLabel}**\n` +
-              `🔐 Acceso: ${accessLabel}\n` +
-              `🔊 Hub: <#${result.hubChannelId}> (\`${HUB_NAME}\`)`,
-          });
-        } catch (e) {
-          await ix.editReply({ content: `❌ ${e.message}` });
-        }
-      },
+      run: runConfigurarAutovoz,
     },
   ],
 
   onGuildRemove(guildId, { getDb }) {
     const id = gid(guildId);
     getDb().prepare('DELETE FROM voces_temp_channels WHERE guild_id = ?').run(id);
+    getDb().prepare('DELETE FROM voces_hubs WHERE guild_id = ?').run(id);
     getDb().prepare('DELETE FROM voces_config WHERE guild_id = ?').run(id);
   },
 
@@ -779,8 +987,10 @@ module.exports = {
         if (!guildId) return;
         if (!isModuleEnabled(getDb, guildId, 'voces')) return;
 
-        const cfg = getConfig(getDb, guildId);
-        if (!cfg?.enabled || !cfg.hubChannelId) return;
+        const enabledHubs = listEnabledHubs(getDb, guildId);
+        if (!enabledHubs.length) return;
+
+        const hubIds = hubChannelIdSet(enabledHubs);
 
         const member = newState.member || oldState.member;
         if (!member || member.user.bot) return;
@@ -788,17 +998,22 @@ module.exports = {
         const joinedId = newState.channelId;
         const leftId = oldState.channelId;
 
-        if (joinedId && gid(joinedId) === gid(cfg.hubChannelId)) {
-          await handleHubJoin(client, getDb, member, cfg, log);
+        if (joinedId) {
+          const joinedHub = enabledHubs.find((h) => gid(h.hubChannelId) === gid(joinedId));
+          if (joinedHub) {
+            await handleHubJoin(client, getDb, member, joinedHub, log);
+          }
         }
 
         if (leftId && getTempChannel(getDb, leftId)) {
           await handleTempLeave(client, getDb, guildId, leftId, log);
         }
 
-        if (joinedId && getTempChannel(getDb, joinedId) && gid(joinedId) !== gid(cfg.hubChannelId)) {
+        if (joinedId && getTempChannel(getDb, joinedId) && !hubIds.has(gid(joinedId))) {
           const temp = getTempChannel(getDb, joinedId);
-          if (temp && !memberHasAllowedRole(member, cfg.allowedRoleIds)) {
+          const hub = getHubForTemp(getDb, temp);
+          const roleIds = hub?.allowedRoleIds || [];
+          if (hub && !memberHasAllowedRole(member, roleIds)) {
             const ownerOk = gid(temp.owner_id) === gid(member.id);
             const ow = await newState.channel?.permissionOverwrites?.cache?.get(member.id);
             const hasAllow = ow?.allow?.has(PermissionFlagsBits.Connect);
@@ -816,18 +1031,28 @@ module.exports = {
 
     client.on(Events.ChannelDelete, (channel) => {
       if (!channel.guildId || channel.type !== ChannelType.GuildVoice) return;
+
+      const hub = getHubByChannelId(getDb, channel.id);
+      if (hub) {
+        deleteHubRow(getDb, hub.id);
+        return;
+      }
+
       const row = getTempChannel(getDb, channel.id);
       if (!row) return;
+
+      const hubId = row.hub_id;
       deleteTempChannelRow(getDb, channel.id);
-      const remaining = listActiveTempChannels(getDb, channel.guildId);
-      if (!remaining.length) setSequenceCounter(getDb, channel.guildId, 0);
+      if (hubId) {
+        const remaining = listActiveTempChannelsForHub(getDb, hubId);
+        if (!remaining.length) setSequenceCounter(getDb, hubId, 0);
+      }
     });
   },
 
   async handleInteraction(ix, { getDb, log }) {
     if (ix.isChatInputCommand() && ix.commandName === 'configurar_autovoz') {
-      const cmd = module.exports.commands[0];
-      await cmd.run(ix, { getDb, log });
+      await runConfigurarAutovoz(ix, { getDb, log });
       return true;
     }
 

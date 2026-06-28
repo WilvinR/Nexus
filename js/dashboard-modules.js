@@ -1383,9 +1383,10 @@ function initModuleModals(deps) {
     await ensureRoles();
     const r = await api(`/api/guilds/${modalGuildId}/voces`);
     if (!r.ok) return alert('No se pudo cargar auto voz');
-    const cfg = await r.json();
+    const data = await r.json();
+    let hubs = data.hubs || [];
 
-    function roleCheckboxes(selectedIds) {
+    function roleCheckboxes(selectedIds, prefix = 'voces-role-cb') {
       const set = new Set((selectedIds || []).map(String));
       if (!rolesCache.length) {
         return '<p class="modal-meta">No hay roles configurables.</p>';
@@ -1393,77 +1394,144 @@ function initModuleModals(deps) {
       return `<div class="voces-role-grid">${rolesCache
         .map(
           (role) => `<label class="voces-role-check">
-            <input type="checkbox" class="voces-role-cb" value="${escapeHtml(role.id)}" ${set.has(String(role.id)) ? 'checked' : ''}>
+            <input type="checkbox" class="${prefix}" value="${escapeHtml(role.id)}" ${set.has(String(role.id)) ? 'checked' : ''}>
             <span>${escapeHtml(role.name)}</span>
           </label>`,
         )
         .join('')}</div>`;
     }
 
-    function render() {
-      const modeUser = cfg.namingMode !== 'sequence';
-      const hubLine = cfg.hubChannelId
-        ? `<p class="modal-meta">Hub activo: <strong>${escapeHtml(cfg.hubName || '➕ Crear canal')}</strong> · Salas activas: <strong>${cfg.activeTempChannels ?? 0}</strong></p>`
-        : '<p class="modal-meta">Sin configurar — elige categoría (y roles si quieres modo privado), luego guarda.</p>';
+    function hubCapsule(h) {
+      const mode = h.namingMode === 'sequence' ? 'Secuencial' : 'Nombre creador';
+      const access = h.allowedRoleIds?.length ? 'Privado' : 'Público';
+      const badge = h.enabled
+        ? '<span class="voces-badge voces-badge-on">Activo</span>'
+        : '<span class="voces-badge voces-badge-off">Desactivado</span>';
+      const hubLabel = escapeHtml(h.hubName || '➕ Crear canal');
+      const cat = escapeHtml(h.categoryName || 'Sin categoría');
+      return `<div class="capsule voces-hub-capsule">
+        <div class="capsule-body" style="flex:1;min-width:200px">
+          <div style="font-weight:700;color:#fff;margin-bottom:4px">${hubLabel} ${badge}</div>
+          <p class="modal-meta" style="margin:0">📁 <strong>${cat}</strong> · ${mode} · ${access} · Salas: <strong>${h.activeTempChannels ?? 0}</strong></p>
+        </div>
+        <button type="button" class="icon-btn" data-voces-edit="${h.id}" title="Editar">✏️</button>
+        <button type="button" class="icon-btn" data-voces-del="${h.id}" title="Eliminar">❌</button>
+      </div>`;
+    }
 
-      openModal(
-        'Auto Voz',
-        `<div class="modal-section">
-          <p class="modal-meta">Canal <strong>➕ Crear canal</strong>: al unirse, cada usuario obtiene su sala con panel de control.</p>
-          ${hubLine}
-          ${categorySelect('voces-cat', cfg.categoryId || '', 'Categoría')}
-          <label class="form-label">Modo de nombre
-            <select class="form-input" id="voces-mode">
-              <option value="username" ${modeUser ? 'selected' : ''}>Por nombre del creador</option>
-              <option value="sequence" ${!modeUser ? 'selected' : ''}>Por número secuencial (Sala 1, 2…)</option>
-            </select>
-          </label>
-          <div class="modal-section">
-            <h3>Roles con acceso (opcional)</h3>
-            <p class="modal-meta">Sin roles marcados: hub y salas <strong>públicas</strong> para todo el servidor. Con uno o más roles: solo esos roles ven y entran (privado).</p>
-            ${roleCheckboxes(cfg.allowedRoleIds)}
-          </div>
-          <div class="form-actions">
-            <button type="button" class="btn btn-accent" data-voces="save">Guardar y crear hub</button>
-            ${cfg.hubChannelId ? '<button type="button" class="btn btn-ghost" data-voces="disable">Desactivar (sin borrar hub)</button>' : ''}
-          </div>
-        </div>`,
-      );
+    function showHubForm(row, refresh) {
+      const slot = document.getElementById('voces-form-slot');
+      const isEdit = !!row;
+      slot.innerHTML = `<div class="sub-form">
+        <h4>${isEdit ? 'Editar hub' : 'Nuevo hub'}</h4>
+        ${isEdit ? `<p class="modal-meta">Canal en Discord: <strong>${escapeHtml(row.hubName || '➕ Crear canal')}</strong> — renómbralo en Discord si quieres.</p>` : '<p class="modal-meta">Se creará el canal <strong>➕ Crear canal</strong> en la categoría elegida.</p>'}
+        ${categorySelect('voces-cat', row?.categoryId || '', 'Categoría')}
+        <label class="form-label">Modo de nombre de las salas temporales
+          <select class="form-input" id="voces-mode">
+            <option value="username" ${row?.namingMode !== 'sequence' ? 'selected' : ''}>Por nombre del creador</option>
+            <option value="sequence" ${row?.namingMode === 'sequence' ? 'selected' : ''}>Por número secuencial (Sala 1, 2…)</option>
+          </select>
+        </label>
+        <div class="modal-section" style="margin-bottom:0">
+          <h3>Roles con acceso (opcional)</h3>
+          <p class="modal-meta">Sin roles = público. Con roles = solo ellos ven y entran.</p>
+          ${roleCheckboxes(row?.allowedRoleIds)}
+        </div>
+        ${formActions(isEdit)}
+        ${isEdit ? '<button type="button" class="btn btn-ghost" data-voces-disable>Desactivar hub</button>' : ''}
+      </div>`;
 
-      body.querySelector('[data-voces="save"]')?.addEventListener('click', async () => {
-        const categoryId = document.getElementById('voces-cat')?.value;
-        const namingMode = document.getElementById('voces-mode')?.value || 'username';
-        const allowedRoleIds = [...body.querySelectorAll('.voces-role-cb:checked')].map((el) => el.value);
-        if (!categoryId) return alert('Elige una categoría.');
-        const res = await api(`/api/guilds/${modalGuildId}/voces`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ categoryId, namingMode, allowedRoleIds, enabled: true }),
-        });
-        if (!res.ok) {
-          alert((await res.json().catch(() => ({}))).error || 'Error al guardar');
-          return;
-        }
-        alert('Auto voz configurado. El hub se creó en Discord.');
-        const fresh = await api(`/api/guilds/${modalGuildId}/voces`);
-        if (fresh.ok) Object.assign(cfg, await fresh.json());
-        render();
+      slot.querySelector('[data-act="cancel"]')?.addEventListener('click', () => {
+        slot.innerHTML = '';
       });
 
-      body.querySelector('[data-voces="disable"]')?.addEventListener('click', async () => {
-        if (!confirm('¿Desactivar auto voz? No se crearán salas nuevas hasta volver a guardar.')) return;
-        const res = await api(`/api/guilds/${modalGuildId}/voces`, {
+      slot.querySelector('[data-voces-disable]')?.addEventListener('click', async () => {
+        if (!confirm('¿Desactivar este hub? No creará salas hasta volver a activarlo.')) return;
+        const res = await api(`/api/guilds/${modalGuildId}/voces/${row.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled: false }),
         });
         if (res.ok) {
-          cfg.enabled = false;
-          alert('Auto voz desactivado.');
-          render();
-        } else {
-          alert((await res.json().catch(() => ({}))).error || 'Error');
+          alert('Hub desactivado.');
+          const fresh = await api(`/api/guilds/${modalGuildId}/voces`);
+          if (fresh.ok) hubs = (await fresh.json()).hubs || [];
+          refresh();
+        } else alert((await res.json().catch(() => ({}))).error || 'Error');
+      });
+
+      slot.querySelector('[data-act="save"]')?.addEventListener('click', async () => {
+        const categoryId = document.getElementById('voces-cat')?.value;
+        const namingMode = document.getElementById('voces-mode')?.value || 'username';
+        const allowedRoleIds = [...slot.querySelectorAll('.voces-role-cb:checked')].map((el) => el.value);
+        if (!categoryId) return alert('Elige una categoría.');
+        const payload = { categoryId, namingMode, allowedRoleIds, enabled: true };
+        const res = row
+          ? await api(`/api/guilds/${modalGuildId}/voces/${row.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+          : await api(`/api/guilds/${modalGuildId}/voces`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            });
+        if (!res.ok) {
+          alert((await res.json().catch(() => ({}))).error || 'Error al guardar');
+          return;
         }
+        alert(row ? 'Hub actualizado.' : 'Hub creado en Discord.');
+        const fresh = await api(`/api/guilds/${modalGuildId}/voces`);
+        if (fresh.ok) hubs = (await fresh.json()).hubs || [];
+        refresh();
+      });
+
+      slot.querySelector('[data-act="delete"]')?.addEventListener('click', async () => {
+        if (!row || !confirm('¿Eliminar este hub? Se borrará el canal en Discord.')) return;
+        const res = await api(`/api/guilds/${modalGuildId}/voces/${row.id}`, { method: 'DELETE' });
+        if (!res.ok) {
+          alert((await res.json().catch(() => ({}))).error || 'Error');
+          return;
+        }
+        const fresh = await api(`/api/guilds/${modalGuildId}/voces`);
+        if (fresh.ok) hubs = (await fresh.json()).hubs || [];
+        refresh();
+      });
+    }
+
+    function render() {
+      let html = `<div class="modal-section">
+        <p class="modal-meta">Canal <strong>➕ Crear canal</strong>: al unirse, cada usuario obtiene su sala con panel de control.</p>
+        <h3>Hubs configurados (${hubs.length})</h3>`;
+      if (!hubs.length) {
+        html += '<p class="modal-meta">Sin hubs — añade uno con el botón de abajo.</p>';
+      } else {
+        html += hubs.map(hubCapsule).join('');
+      }
+      html += `<button type="button" class="btn btn-accent btn-sm" data-voces="add">+ Añadir hub</button>
+        <div id="voces-form-slot"></div></div>`;
+
+      openModal('Auto Voz', html);
+
+      body.querySelector('[data-voces="add"]')?.addEventListener('click', () => showHubForm(null, render));
+      body.querySelectorAll('[data-voces-edit]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const h = hubs.find((x) => String(x.id) === btn.dataset.vocesEdit);
+          if (h) showHubForm(h, render);
+        });
+      });
+      body.querySelectorAll('[data-voces-del]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const h = hubs.find((x) => String(x.id) === btn.dataset.vocesDel);
+          if (!h || !confirm('¿Eliminar este hub? Se borrará el canal en Discord.')) return;
+          const res = await api(`/api/guilds/${modalGuildId}/voces/${h.id}`, { method: 'DELETE' });
+          if (res.ok) {
+            const fresh = await api(`/api/guilds/${modalGuildId}/voces`);
+            if (fresh.ok) hubs = (await fresh.json()).hubs || [];
+            render();
+          } else alert((await res.json().catch(() => ({}))).error || 'Error');
+        });
       });
     }
 

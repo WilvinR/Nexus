@@ -25,7 +25,13 @@ const {
 const { resolveBattleTrackInput, seedBattles } = require('./battle');
 const { GUCCI_MIN_FAME } = require('./kill');
 const { resolveMemberStats } = require('./memberStats');
-const { getConfig: getVocesConfig, applyVocesSetup, saveConfig: saveVocesConfig } = require('./voces');
+const {
+  listHubs,
+  getHubById,
+  createHub,
+  updateHub,
+  deleteHub,
+} = require('./voces');
 
 function gid(id) {
   return String(id);
@@ -1131,44 +1137,39 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     }
   });
 
+  const HUB_NAME_VOCES = '➕ Crear canal';
+
+  function hubToJson(hub, guild) {
+    const ch = hub.hubChannelId ? guild.channels.cache.get(hub.hubChannelId) : null;
+    const cat = hub.categoryId ? guild.channels.cache.get(hub.categoryId) : null;
+    const activeTempChannels =
+      getDb()
+        .prepare('SELECT COUNT(*) AS n FROM voces_temp_channels WHERE hub_id = ?')
+        .get(hub.id)?.n ?? 0;
+    return {
+      id: hub.id,
+      hubChannelId: hub.hubChannelId,
+      hubName: ch?.name ?? HUB_NAME_VOCES,
+      categoryId: hub.categoryId,
+      categoryName: cat?.name ?? null,
+      namingMode: hub.namingMode,
+      allowedRoleIds: hub.allowedRoleIds,
+      enabled: hub.enabled,
+      sequenceCounter: hub.sequenceCounter,
+      activeTempChannels,
+    };
+  }
+
   app.get('/api/guilds/:guildId/voces', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
-    const cfg = getVocesConfig(getDb, ctx.guildId);
-    const activeCount = getDb()
-      .prepare('SELECT COUNT(*) AS n FROM voces_temp_channels WHERE guild_id = ?')
-      .get(gid(ctx.guildId))?.n ?? 0;
-    let hubName = null;
-    if (cfg?.hubChannelId) {
-      const hub = ctx.guild.channels.cache.get(cfg.hubChannelId);
-      hubName = hub?.name ?? null;
-    }
-    res.json({
-      ok: true,
-      configured: Boolean(cfg?.hubChannelId),
-      enabled: cfg?.enabled ?? false,
-      categoryId: cfg?.categoryId ?? null,
-      hubChannelId: cfg?.hubChannelId ?? null,
-      hubName,
-      namingMode: cfg?.namingMode ?? 'username',
-      allowedRoleIds: cfg?.allowedRoleIds ?? [],
-      sequenceCounter: cfg?.sequenceCounter ?? 0,
-      activeTempChannels: activeCount,
-    });
+    const hubs = listHubs(getDb, ctx.guildId).map((h) => hubToJson(h, ctx.guild));
+    res.json({ ok: true, hubs });
   });
 
-  app.patch('/api/guilds/:guildId/voces', sessionAuth, async (req, res) => {
+  app.post('/api/guilds/:guildId/voces', sessionAuth, async (req, res) => {
     const ctx = await access(req, res);
     if (!ctx) return;
-
-    const enabledOnly = req.body?.enabled === false && !req.body?.categoryId;
-    if (enabledOnly) {
-      const prev = getVocesConfig(getDb, ctx.guildId);
-      if (prev) {
-        saveVocesConfig(getDb, ctx.guildId, { ...prev, enabled: false });
-      }
-      return res.json({ ok: true, enabled: false });
-    }
 
     const categoryId = req.body?.categoryId ? String(req.body.categoryId).trim() : null;
     const namingMode = req.body?.namingMode === 'sequence' ? 'sequence' : 'username';
@@ -1191,22 +1192,86 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     }
 
     try {
-      const result = await applyVocesSetup(client, getDb, ctx.guildId, log, {
+      const hub = await createHub(client, getDb, ctx.guildId, log, {
         categoryId,
         namingMode,
         allowedRoleIds,
         enabled: req.body?.enabled !== false,
       });
-      res.json({
-        ok: true,
-        enabled: true,
-        categoryId,
-        hubChannelId: result.hubChannelId,
-        namingMode: result.namingMode,
-        allowedRoleIds: result.allowedRoleIds,
-      });
+      res.json({ ok: true, hub: hubToJson(hub, ctx.guild) });
     } catch (e) {
-      res.status(400).json({ error: e.message || 'No se pudo configurar auto voz' });
+      res.status(400).json({ error: e.message || 'No se pudo crear el hub' });
+    }
+  });
+
+  app.patch('/api/guilds/:guildId/voces/:hubId', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+
+    const hubId = Number(req.params.hubId);
+    const prev = getHubById(getDb, hubId);
+    if (!prev || String(prev.guildId) !== String(ctx.guildId)) {
+      return res.status(404).json({ error: 'Hub no encontrado' });
+    }
+
+    if (req.body?.enabled === false && !req.body?.categoryId) {
+      try {
+        const hub = await updateHub(client, getDb, ctx.guildId, hubId, log, { enabled: false });
+        return res.json({ ok: true, hub: hubToJson(hub, ctx.guild) });
+      } catch (e) {
+        return res.status(400).json({ error: e.message || 'No se pudo desactivar el hub' });
+      }
+    }
+
+    const categoryId = req.body?.categoryId ? String(req.body.categoryId).trim() : prev.categoryId;
+    const namingMode =
+      req.body?.namingMode === 'sequence'
+        ? 'sequence'
+        : req.body?.namingMode === 'username'
+          ? 'username'
+          : prev.namingMode;
+    let allowedRoleIds = req.body?.allowedRoleIds;
+    if (!Array.isArray(allowedRoleIds)) allowedRoleIds = prev.allowedRoleIds;
+    allowedRoleIds = [...new Set(allowedRoleIds.map(String).filter(Boolean))];
+
+    const cat = ctx.guild.channels.cache.get(categoryId);
+    if (!cat || cat.type !== ChannelType.GuildCategory) {
+      return res.status(400).json({ error: 'Categoría no válida' });
+    }
+
+    for (const rid of allowedRoleIds) {
+      const err = canBotManageRole(ctx.guild, rid);
+      if (err) return res.status(400).json({ error: err });
+    }
+
+    try {
+      const hub = await updateHub(client, getDb, ctx.guildId, hubId, log, {
+        categoryId,
+        namingMode,
+        allowedRoleIds,
+        enabled: req.body?.enabled !== false,
+      });
+      res.json({ ok: true, hub: hubToJson(hub, ctx.guild) });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo actualizar el hub' });
+    }
+  });
+
+  app.delete('/api/guilds/:guildId/voces/:hubId', sessionAuth, async (req, res) => {
+    const ctx = await access(req, res);
+    if (!ctx) return;
+
+    const hubId = Number(req.params.hubId);
+    const prev = getHubById(getDb, hubId);
+    if (!prev || String(prev.guildId) !== String(ctx.guildId)) {
+      return res.status(404).json({ error: 'Hub no encontrado' });
+    }
+
+    try {
+      await deleteHub(client, getDb, ctx.guildId, hubId, log);
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ error: e.message || 'No se pudo eliminar el hub' });
     }
   });
 }

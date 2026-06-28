@@ -128,14 +128,16 @@ const CATEGORIES = {
     emoji: '🔊',
     commands: [
       {
-        name: '/configurar_autovoz',
-        desc: 'Configura categoría y modo de nombre. Roles opcionales: sin roles = público; con roles = privado (Mod).',
+        name: '/configurar_autovoz crear',
+        desc: 'Añade un hub ➕ Crear canal en una categoría (Mod). Modo nombre y roles opcionales.',
       },
+      { name: '/configurar_autovoz listar', desc: 'Lista los hubs de auto voz del servidor (Mod).' },
+      { name: '/configurar_autovoz eliminar', desc: 'Elimina un hub por canal de voz (Mod).' },
       {
         name: 'Hub ➕ Crear canal',
         desc: 'Al unirse, el bot crea una sala temporal con panel de control (nombre, límite, estado, permisos).',
       },
-      { name: 'Dashboard web', desc: 'Configura auto voz desde Módulos → Auto Voz → Configurar.' },
+      { name: 'Dashboard web', desc: 'Módulos → Auto Voz → varios hubs, editar y eliminar.' },
     ],
   },
   utilidad: {

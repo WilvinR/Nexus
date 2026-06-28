@@ -248,6 +248,17 @@ function getDb() {
       moderator_id TEXT,
       created_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS voces_hubs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id TEXT NOT NULL,
+      hub_channel_id TEXT UNIQUE,
+      category_id TEXT NOT NULL,
+      naming_mode TEXT DEFAULT 'username',
+      allowed_role_ids TEXT DEFAULT '[]',
+      sequence_counter INTEGER DEFAULT 0,
+      enabled INTEGER DEFAULT 1,
+      created_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS voces_config (
       guild_id TEXT PRIMARY KEY,
       category_id TEXT,
@@ -260,6 +271,7 @@ function getDb() {
     CREATE TABLE IF NOT EXISTS voces_temp_channels (
       channel_id TEXT PRIMARY KEY,
       guild_id TEXT NOT NULL,
+      hub_id INTEGER,
       owner_id TEXT NOT NULL,
       sequence_number INTEGER,
       control_message_id TEXT,
@@ -270,6 +282,40 @@ function getDb() {
   if (registroCols.length && !registroCols.some((c) => c.name === 'registro_mode')) {
     db.exec(`ALTER TABLE registro_guilds ADD COLUMN registro_mode TEXT DEFAULT 'guild'`);
     log.info('Migración: columna registro_mode en registro_guilds');
+  }
+  const vocesTempCols = db.prepare('PRAGMA table_info(voces_temp_channels)').all();
+  if (vocesTempCols.length && !vocesTempCols.some((c) => c.name === 'hub_id')) {
+    db.exec('ALTER TABLE voces_temp_channels ADD COLUMN hub_id INTEGER');
+    log.info('Migración: columna hub_id en voces_temp_channels');
+  }
+  const legacyVoces = db.prepare('SELECT * FROM voces_config').all();
+  for (const row of legacyVoces) {
+    if (!row.hub_channel_id || !row.category_id) continue;
+    const exists = db
+      .prepare('SELECT id FROM voces_hubs WHERE hub_channel_id = ?')
+      .get(String(row.hub_channel_id));
+    if (exists) continue;
+    const ins = db
+      .prepare(`
+        INSERT INTO voces_hubs (
+          guild_id, hub_channel_id, category_id, naming_mode, allowed_role_ids, sequence_counter, enabled, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        String(row.guild_id),
+        String(row.hub_channel_id),
+        String(row.category_id),
+        row.naming_mode || 'username',
+        row.allowed_role_ids || '[]',
+        row.sequence_counter || 0,
+        row.enabled === 0 ? 0 : 1,
+        Date.now(),
+      );
+    const hubId = ins.lastInsertRowid;
+    db.prepare(
+      'UPDATE voces_temp_channels SET hub_id = ? WHERE guild_id = ? AND (hub_id IS NULL OR hub_id = 0)',
+    ).run(hubId, String(row.guild_id));
+    log.info(`Migración: voces_config → voces_hubs (guild ${row.guild_id})`);
   }
   return db;
 }
