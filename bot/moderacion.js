@@ -18,6 +18,36 @@ const {
 
 const PREFIX = 'mod';
 const pendingAutorol = new Map();
+const AUTOROL_CUSTOM_EMOJI_RE = /^<a?:([a-zA-Z0-9_]+):(\d+)>$/;
+const AUTOROL_REACTION_WAIT_MS = 60_000;
+
+/** Clave estable: unicode en .name, custom en <:name:id> (igual que Discord al reaccionar). */
+function reactionEmojiKey(emoji) {
+  if (!emoji) return '';
+  if (emoji.id) {
+    return emoji.animated ? `<a:${emoji.name}:${emoji.id}>` : `<:${emoji.name}:${emoji.id}>`;
+  }
+  return emoji.name || '';
+}
+
+/** Configs antiguas guardadas como :nombre_custom: del servidor. */
+function resolveLegacyAutorolEmoji(stored, guild) {
+  if (!stored || typeof stored !== 'string') return stored;
+  const raw = stored.trim();
+  if (AUTOROL_CUSTOM_EMOJI_RE.test(raw)) return raw;
+  const m = raw.match(/^:([a-zA-Z0-9_]+):$/);
+  if (m && guild?.emojis?.cache) {
+    const ge = guild.emojis.cache.find((e) => e.name === m[1]);
+    if (ge) return reactionEmojiKey(ge);
+  }
+  return raw;
+}
+
+function autorolEmojiMatches(stored, reactionEmoji, guild) {
+  const reactionKey = reactionEmojiKey(reactionEmoji);
+  const storedKey = resolveLegacyAutorolEmoji(stored, guild);
+  return storedKey === reactionKey;
+}
 
 const COLORS = {
   rojo: Colors.Red,
@@ -124,7 +154,7 @@ const commands = [
       .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers),
     async run(ix) {
       const key = `${ix.guildId}:${ix.user.id}`;
-      pendingAutorol.set(key, { title: null, description: null, color: Colors.Blue, channelId: null, roles: [] });
+      pendingAutorol.set(key, { title: null, description: null, color: Colors.Blue, channelId: null, roles: [], pendingEmoji: null, emojiSetupMessageId: null, emojiCollector: null });
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`${PREFIX}:ar:title`).setLabel('Título/Descripción').setStyle(ButtonStyle.Primary),
@@ -265,15 +295,69 @@ async function handleAutorolInteraction(ix, { getDb }) {
       return true;
     }
     if (action === 'emoji') {
-      const modal = new ModalBuilder()
-        .setCustomId(`${PREFIX}:ar:modal:emoji`)
-        .setTitle('Emoji y rol')
-        .addComponents(
-          new ActionRowBuilder().addComponents(
-            new TextInputBuilder().setCustomId('emoji').setLabel('Emoji').setStyle(TextInputStyle.Short).setRequired(true),
-          ),
-        );
-      await ix.showModal(modal);
+      if (cfg.emojiCollector) {
+        cfg.emojiCollector.stop();
+        cfg.emojiCollector = null;
+      }
+      if (cfg.emojiSetupMessageId) {
+        const old = await ix.channel.messages.fetch(cfg.emojiSetupMessageId).catch(() => null);
+        await old?.delete().catch(() => {});
+        cfg.emojiSetupMessageId = null;
+      }
+      cfg.pendingEmoji = null;
+
+      const setupMsg = await ix.channel.send({
+        content: `${ix.user}, **reacciona a este mensaje** con el emoji del rol (tienes 60 s).`,
+      });
+      cfg.emojiSetupMessageId = setupMsg.id;
+      pendingAutorol.set(key, cfg);
+
+      await ix.reply({
+        content: '👆 Reacciona al mensaje de arriba con el emoji que quieras usar.',
+        ephemeral: true,
+      });
+
+      const collector = setupMsg.createReactionCollector({
+        filter: (r, u) => u.id === ix.user.id && !u.bot,
+        time: AUTOROL_REACTION_WAIT_MS,
+        max: 1,
+      });
+      cfg.emojiCollector = collector;
+      pendingAutorol.set(key, cfg);
+
+      collector.on('collect', async (reaction) => {
+        if (reaction.partial) await reaction.fetch().catch(() => {});
+        const live = pendingAutorol.get(key);
+        if (!live) return;
+
+        live.pendingEmoji = reactionEmojiKey(reaction.emoji);
+        live.emojiCollector = null;
+        pendingAutorol.set(key, live);
+
+        const sel = new RoleSelectMenuBuilder()
+          .setCustomId(`${PREFIX}:ar:pick:role`)
+          .setPlaceholder('Rol para este emoji')
+          .setMaxValues(1);
+
+        await setupMsg
+          .edit({
+            content: `${ix.user} — emoji capturado: **${live.pendingEmoji}**\nElige el rol en el menú de abajo:`,
+            components: [new ActionRowBuilder().addComponents(sel)],
+          })
+          .catch(() => {});
+      });
+
+      collector.on('end', async (collected) => {
+        const live = pendingAutorol.get(key);
+        if (!live) return;
+        live.emojiCollector = null;
+        pendingAutorol.set(key, live);
+        if (collected.size === 0) {
+          await setupMsg.delete().catch(() => {});
+          if (live.emojiSetupMessageId === setupMsg.id) live.emojiSetupMessageId = null;
+        }
+      });
+
       return true;
     }
     if (action === 'channel') {
@@ -331,15 +415,6 @@ async function handleAutorolInteraction(ix, { getDb }) {
       await ix.reply({ content: '✅ Título y descripción guardados.', ephemeral: true });
       return true;
     }
-    if (ix.customId === `${PREFIX}:ar:modal:emoji`) {
-      const emoji = ix.fields.getTextInputValue('emoji').trim();
-      const sel = new RoleSelectMenuBuilder()
-        .setCustomId(`${PREFIX}:ar:pick:role:${encodeURIComponent(emoji)}`)
-        .setPlaceholder('Rol para este emoji')
-        .setMaxValues(1);
-      await ix.reply({ content: `Rol para ${emoji}:`, components: [new ActionRowBuilder().addComponents(sel)], ephemeral: true });
-      return true;
-    }
   }
 
   if (ix.isChannelSelectMenu() && ix.customId === `${PREFIX}:ar:pick:channel`) {
@@ -356,14 +431,24 @@ async function handleAutorolInteraction(ix, { getDb }) {
     return true;
   }
 
-  if (ix.isRoleSelectMenu() && ix.customId.startsWith(`${PREFIX}:ar:pick:role:`)) {
-    const emoji = decodeURIComponent(ix.customId.split(':')[4]);
+  if (ix.isRoleSelectMenu() && ix.customId === `${PREFIX}:ar:pick:role`) {
+    const emoji = cfg.pendingEmoji;
+    if (!emoji) {
+      await ix.reply({ content: '❌ Primero reacciona al mensaje con el emoji del rol.', ephemeral: true });
+      return true;
+    }
     const role = ix.roles.first();
-    if (cfg.roles.some((r) => r.emoji === emoji)) {
+    if (cfg.roles.some((r) => resolveLegacyAutorolEmoji(r.emoji, ix.guild) === emoji)) {
       await ix.reply({ content: '❌ Ese emoji ya está configurado.', ephemeral: true });
       return true;
     }
     cfg.roles.push({ emoji, roleId: role.id });
+    cfg.pendingEmoji = null;
+    if (cfg.emojiSetupMessageId) {
+      const setup = await ix.channel.messages.fetch(cfg.emojiSetupMessageId).catch(() => null);
+      await setup?.delete().catch(() => {});
+      cfg.emojiSetupMessageId = null;
+    }
     pendingAutorol.set(key, cfg);
     await ix.reply({ content: `✅ ${emoji} → ${role.name}`, ephemeral: true });
     return true;
@@ -387,8 +472,7 @@ async function handleReaction(reaction, user, add, getDb) {
   if (!guild) return;
   const member = await guild.members.fetch(user.id).catch(() => null);
   if (!member) return;
-  const emoji = reaction.emoji.id ? `<:${reaction.emoji.name}:${reaction.emoji.id}>` : reaction.emoji.name;
-  const match = configs.find((c) => c.emoji === emoji || c.emoji === reaction.emoji.name);
+  const match = configs.find((c) => autorolEmojiMatches(c.emoji, reaction.emoji, guild));
   if (!match) return;
   const role = guild.roles.cache.get(match.roleId);
   if (!role) return;
