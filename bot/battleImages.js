@@ -140,19 +140,13 @@ function buildGuildBattleImage(battle, monitoredGuildId) {
 }
 
 function buildAllianceBattleImage(battle, monitoredAllianceId, allianceTag) {
-  const allianceInfo = {};
-  const guildToAlliance = {};
+  const allianceTags = {};
 
   for (const [, gd] of Object.entries(battle.guilds || {})) {
     const aid = gd.allianceId;
-    const gname = gd.name || 'Unknown';
     if (!aid) continue;
-    guildToAlliance[gd.id || gname] = aid;
-    if (!allianceInfo[aid]) {
-      allianceInfo[aid] = { tag: gd.allianceTag || '', guildCount: 0, guilds: new Set() };
-    }
-    allianceInfo[aid].guildCount++;
-    allianceInfo[aid].guilds.add(gname);
+    const tag = gd.alliance || gd.allianceTag || gd.allianceName || '';
+    if (tag && !allianceTags[aid]) allianceTags[aid] = tag;
   }
 
   const grouped = {};
@@ -163,21 +157,18 @@ function buildAllianceBattleImage(battle, monitoredAllianceId, allianceTag) {
     const guildId = p.guildId;
     const guildName = p.guildName || 'Unknown';
     if (!guildId) continue;
-    const aid = guildToAlliance[guildId];
+
+    const gMeta = (battle.guilds || {})[guildId];
+    const aid = gMeta?.allianceId || p.allianceId || null;
     let groupKey;
     let displayName;
     let groupAllianceId = null;
 
-    if (aid && allianceInfo[aid]) {
-      const ai = allianceInfo[aid];
-      if (ai.guildCount > 1) {
-        groupKey = `a_${aid}`;
-        displayName = aid === monitoredAllianceId ? allianceTag : ai.tag || [...ai.guilds][0];
-        groupAllianceId = aid;
-      } else {
-        groupKey = `g_${guildId}`;
-        displayName = guildName;
-      }
+    if (aid) {
+      groupKey = `a_${aid}`;
+      const tag = allianceTags[aid] || p.allianceName || gMeta?.alliance || gMeta?.allianceTag || '';
+      displayName = tag || guildName;
+      groupAllianceId = aid;
     } else {
       groupKey = `g_${guildId}`;
       displayName = guildName;
@@ -200,6 +191,10 @@ function buildAllianceBattleImage(battle, monitoredAllianceId, allianceTag) {
         killFame: p.killFame || 0,
       });
     }
+  }
+
+  if (grouped[`a_${monitoredAllianceId}`]) {
+    grouped[`a_${monitoredAllianceId}`].displayName = allianceTag;
   }
 
   const sorted = Object.entries(grouped).sort((a, b) => b[1].kills - a[1].kills);

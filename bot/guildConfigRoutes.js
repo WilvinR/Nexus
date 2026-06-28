@@ -22,7 +22,7 @@ const {
   updateEventFromDashboard,
   deleteEventFromDashboard,
 } = require('./eventos');
-const { resolveBattleTrackInput, seedBattles } = require('./battle');
+const { resolveGuildBattleInput, seedBattles } = require('./battle');
 const { GUCCI_MIN_FAME } = require('./kill');
 const { resolveMemberStats } = require('./memberStats');
 const {
@@ -590,15 +590,11 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
       .all(gid(ctx.guildId))
       .map((t) => ({
         id: t.id,
-        trackType: t.track_type,
         channelId: t.channel_id,
         albionGuildId: t.albion_guild_id,
         allianceId: t.alliance_id,
         allianceTag: t.alliance_tag,
-        label:
-          t.track_type === 'alliance'
-            ? t.alliance_tag || t.alliance_id
-            : t.albion_guild_id,
+        label: t.alliance_tag ? `${t.alliance_tag} (${t.albion_guild_id.slice(0, 8)}…)` : t.albion_guild_id,
       }));
     res.json({ ok: true, tracks });
   });
@@ -608,52 +604,25 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
     if (!ctx) return;
     const channelId = String(req.body?.channelId || '').trim();
     const albionInput = String(req.body?.albionGuildId || req.body?.albionId || '').trim();
-    const trackType = req.body?.trackType === 'alliance' ? 'alliance' : 'guild';
-    const displayName = String(req.body?.name || '').trim();
     if (!channelId || !albionInput) {
-      return res.status(400).json({ error: 'Canal e ID de Albion son obligatorios' });
+      return res.status(400).json({ error: 'Canal e ID del gremio son obligatorios' });
     }
     const ch = ctx.guild.channels.cache.get(channelId);
     if (!ch?.isTextBased()) return res.status(400).json({ error: 'Canal no válido' });
 
-    const resolved = await resolveBattleTrackInput(trackType, albionInput);
+    const resolved = await resolveGuildBattleInput(albionInput);
     if (resolved.error) return res.status(400).json({ error: resolved.error });
 
-    if (resolved.trackType === 'guild') {
-      const dup = getDb()
-        .prepare(
-          'SELECT 1 FROM battle_tracking WHERE discord_guild_id = ? AND track_type = ? AND albion_guild_id = ?',
-        )
-        .get(gid(ctx.guildId), 'guild', resolved.albionGuildId);
-      if (dup) return res.status(400).json({ error: 'Ese gremio ya está en seguimiento' });
-      const r = getDb()
-        .prepare(`
-          INSERT INTO battle_tracking (discord_guild_id, track_type, channel_id, albion_guild_id, sent_battles)
-          VALUES (?, 'guild', ?, ?, '[]')
-        `)
-        .run(gid(ctx.guildId), channelId, resolved.albionGuildId);
-      await seedBattles(getDb, r.lastInsertRowid, resolved.albionGuildId);
-      return res.json({
-        ok: true,
-        track: {
-          id: r.lastInsertRowid,
-          trackType: 'guild',
-          label: displayName || resolved.label || resolved.albionGuildId,
-        },
-      });
-    }
-
     const dup = getDb()
-      .prepare(
-        'SELECT 1 FROM battle_tracking WHERE discord_guild_id = ? AND track_type = ? AND alliance_id = ?',
-      )
-      .get(gid(ctx.guildId), 'alliance', resolved.allianceId);
-    if (dup) return res.status(400).json({ error: 'Esa alianza ya está en seguimiento' });
+      .prepare('SELECT 1 FROM battle_tracking WHERE discord_guild_id = ? AND albion_guild_id = ?')
+      .get(gid(ctx.guildId), resolved.albionGuildId);
+    if (dup) return res.status(400).json({ error: 'Ese gremio ya está en seguimiento' });
+
     const r = getDb()
       .prepare(`
         INSERT INTO battle_tracking (
           discord_guild_id, track_type, channel_id, albion_guild_id, alliance_id, alliance_tag, sent_battles
-        ) VALUES (?, 'alliance', ?, ?, ?, ?, '[]')
+        ) VALUES (?, 'guild', ?, ?, ?, ?, '[]')
       `)
       .run(
         gid(ctx.guildId),
@@ -662,13 +631,13 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
         resolved.allianceId,
         resolved.allianceTag,
       );
-    await seedBattles(getDb, r.lastInsertRowid, resolved.albionGuildId);
+    await seedBattles(getDb, r.lastInsertRowid, resolved, log);
     res.json({
       ok: true,
       track: {
         id: r.lastInsertRowid,
-        trackType: 'alliance',
-        label: displayName || resolved.label || resolved.allianceTag,
+        label: resolved.guildName,
+        allianceTag: resolved.allianceTag,
       },
     });
   });
@@ -687,21 +656,20 @@ function registerGuildConfigRoutes(app, { client, getDb, log, sessionAuth, asser
 
     if (req.body?.albionGuildId != null || req.body?.albionId != null) {
       const albionInput = String(req.body?.albionGuildId ?? req.body?.albionId ?? '').trim();
-      const trackType = row.track_type === 'alliance' ? 'alliance' : 'guild';
-      const resolved = await resolveBattleTrackInput(trackType, albionInput);
+      const resolved = await resolveGuildBattleInput(albionInput);
       if (resolved.error) return res.status(400).json({ error: resolved.error });
-      if (resolved.trackType === 'alliance') {
-        getDb()
-          .prepare(`
-            UPDATE battle_tracking SET channel_id = ?, albion_guild_id = ?, alliance_id = ?, alliance_tag = ?
-            WHERE id = ?
-          `)
-          .run(channelId, resolved.albionGuildId, resolved.allianceId, resolved.allianceTag, id);
-      } else {
-        getDb()
-          .prepare('UPDATE battle_tracking SET channel_id = ?, albion_guild_id = ? WHERE id = ?')
-          .run(channelId, resolved.albionGuildId, id);
-      }
+      getDb()
+        .prepare(`
+          UPDATE battle_tracking SET channel_id = ?, albion_guild_id = ?, alliance_id = ?, alliance_tag = ?, track_type = 'guild'
+          WHERE id = ?
+        `)
+        .run(
+          channelId,
+          resolved.albionGuildId,
+          resolved.allianceId,
+          resolved.allianceTag,
+          id,
+        );
     } else {
       getDb()
         .prepare('UPDATE battle_tracking SET channel_id = ? WHERE id = ?')

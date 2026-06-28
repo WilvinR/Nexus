@@ -18,6 +18,12 @@ const API_GAP_MS = 2000;
 let lastApiCall = 0;
 let cycleIndex = 0;
 
+function blog(log, level, msg) {
+  if (!log) return;
+  const fn = level === 'warn' ? log.warn : level === 'error' ? log.error : log.info;
+  fn(`[battle] ${msg}`);
+}
+
 function gid(id) {
   return String(id);
 }
@@ -43,76 +49,81 @@ async function apiWait() {
   lastApiCall = Date.now();
 }
 
-async function apiGet(url) {
+async function apiGet(url, log) {
   await apiWait();
   for (let i = 0; i < 3; i++) {
     try {
       const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
       if (r.status === 200) return { ok: true, data: await r.json() };
-      if (r.status === 404) return { ok: false, notFound: true };
-    } catch {
+      if (r.status === 404) return { ok: false, notFound: true, status: 404 };
+      blog(log, 'warn', `API HTTP ${r.status}: ${url}`);
+    } catch (e) {
+      blog(log, 'warn', `API intento ${i + 1}/3 falló: ${e.message}`);
       await new Promise((x) => setTimeout(x, 500 * (i + 1)));
     }
   }
+  blog(log, 'warn', `API sin respuesta: ${url}`);
   return { ok: false };
 }
 
-async function fetchBattles(guildId) {
-  const url = `${API}/battles?range=month&offset=0&limit=4&sort=recent&guildId=${guildId}`;
-  const res = await apiGet(url);
-  return res.ok && Array.isArray(res.data) ? res.data : [];
+async function fetchBattlesForTrack({ guildId, allianceId }, log) {
+  const base = `${API}/battles?range=month&offset=0&limit=4&sort=recent`;
+  const url = allianceId
+    ? `${base}&allianceId=${encodeURIComponent(allianceId)}`
+    : `${base}&guildId=${encodeURIComponent(guildId)}`;
+  const mode = allianceId ? `alianza ${allianceId.slice(0, 8)}…` : `gremio ${guildId.slice(0, 8)}…`;
+  const res = await apiGet(url, log);
+  const list = res.ok && Array.isArray(res.data) ? res.data : [];
+  blog(log, 'info', `API batallas (${mode}): ${list.length} recientes [${list.map((b) => b.id).join(', ') || '—'}]`);
+  return list;
 }
 
-async function seedBattles(getDb, rowId, guildId) {
-  const battles = await fetchBattles(guildId);
+/** Resuelve gremio + alianza actual desde la API (solo UUID de gremio). */
+async function resolveGuildBattleInput(albionGuildId) {
+  const id = String(albionGuildId || '').trim();
+  if (!id) return { error: 'ID de gremio requerido' };
+
+  const check = await apiGet(`${API}/guilds/${id}`, null);
+  if (!check.ok) return { error: 'Gremio no encontrado en Albion' };
+
+  const allianceId = check.data?.AllianceId ? String(check.data.AllianceId) : null;
+  const allianceTag =
+    check.data?.AllianceTag ||
+    (allianceId ? `Alianza_${allianceId.slice(0, 8)}` : null);
+
+  return {
+    albionGuildId: id,
+    guildName: check.data?.Name || id,
+    allianceId,
+    allianceTag,
+    label: check.data?.Name || id,
+  };
+}
+
+async function resolveTrackContext(row) {
+  const resolved = await resolveGuildBattleInput(row.albion_guild_id);
+  if (resolved.error) {
+    const allianceId = row.alliance_id ? String(row.alliance_id) : null;
+    return {
+      albionGuildId: row.albion_guild_id,
+      guildName: row.albion_guild_id,
+      allianceId,
+      allianceTag: row.alliance_tag || (allianceId ? 'Alianza' : null),
+    };
+  }
+  return resolved;
+}
+
+async function seedBattles(getDb, rowId, track, log) {
+  const battles = await fetchBattlesForTrack(
+    { guildId: track.albionGuildId, allianceId: track.allianceId },
+    log,
+  );
   const ids = battles.map((b) => String(b.id));
   getDb()
     .prepare('UPDATE battle_tracking SET sent_battles = ? WHERE id = ?')
     .run(JSON.stringify(ids), rowId);
-}
-
-/** Tipo gremio → solo guild id. Tipo alianza → alliance id o guild miembro. */
-async function resolveBattleTrackInput(trackType, albionId) {
-  const id = String(albionId || '').trim();
-  if (!id) return { error: 'ID de Albion requerido' };
-
-  if (trackType === 'guild') {
-    const check = await apiGet(`${API}/guilds/${id}`);
-    if (!check.ok) return { error: 'Gremio no encontrado en Albion' };
-    return {
-      trackType: 'guild',
-      albionGuildId: id,
-      label: check.data?.Name || id,
-    };
-  }
-
-  const asGuild = await apiGet(`${API}/guilds/${id}`);
-  if (asGuild.ok) {
-    const allianceId = asGuild.data?.AllianceId;
-    if (!allianceId) return { error: 'El gremio no tiene alianza' };
-    const allianceTag = asGuild.data?.AllianceTag || `Alianza_${String(allianceId).slice(0, 8)}`;
-    return {
-      trackType: 'alliance',
-      albionGuildId: id,
-      allianceId: String(allianceId),
-      allianceTag,
-      label: allianceTag,
-    };
-  }
-
-  const asAlliance = await apiGet(`${API}/alliances/${id}`);
-  if (!asAlliance.ok) return { error: 'Gremio o alianza no encontrado en Albion' };
-  const guildList = asAlliance.data?.Guilds || [];
-  if (!guildList.length) return { error: 'La alianza no tiene gremios en Albion' };
-  const tag = asAlliance.data?.Tag || asAlliance.data?.AllianceTag || `Alianza_${id.slice(0, 8)}`;
-  const name = asAlliance.data?.Name || asAlliance.data?.AllianceName || tag;
-  return {
-    trackType: 'alliance',
-    albionGuildId: guildList[0].Id,
-    allianceId: id,
-    allianceTag: tag,
-    label: name,
-  };
+  blog(log, 'info', `Seed fila ${rowId}: ${ids.length} batallas marcadas como vistas`);
 }
 
 function releaseBattleImage(built) {
@@ -133,6 +144,7 @@ async function sendGuildBattle(channel, battle, albionGuildId, log) {
       embeds: [embed],
       files: [new AttachmentBuilder(built.buffer, { name: 'battle.png' })],
     });
+    blog(log, 'info', `Reporte gremio enviado: batalla ${battle.id} → #${channel.name}`);
   } finally {
     releaseBattleImage(built);
   }
@@ -152,6 +164,7 @@ async function sendAllianceBattle(channel, battle, allianceId, allianceTag, log)
       embeds: [embed],
       files: [new AttachmentBuilder(built.buffer, { name: 'alliance_battle.png' })],
     });
+    blog(log, 'info', `Reporte alianza enviado: batalla ${battle.id} → #${channel.name}`);
   } finally {
     releaseBattleImage(built);
   }
@@ -165,33 +178,76 @@ function countAlliancePlayers(battle, allianceId) {
   const guilds = battle.guilds || {};
   return Object.values(battle.players || {}).filter((p) => {
     const g = guilds[p.guildId];
-    return g?.allianceId === allianceId;
+    const aid = g?.allianceId || p.allianceId;
+    return aid === allianceId;
   }).length;
 }
 
 async function processRow(getDb, row, client, log) {
-  const guild = client.guilds.cache.get(row.discord_guild_id);
-  if (!guild) return;
-  const channel = guild.channels.cache.get(row.channel_id);
-  if (!channel?.isTextBased()) return;
+  const tag = row.alliance_tag || row.albion_guild_id.slice(0, 12);
+  blog(log, 'info', `Chequeo fila ${row.id} (Discord ${row.discord_guild_id}, ${tag})`);
 
-  const sampleGuildId = row.albion_guild_id;
-  const battles = await fetchBattles(sampleGuildId);
-  if (!battles.length) return;
+  const guild = client.guilds.cache.get(row.discord_guild_id);
+  if (!guild) {
+    blog(log, 'warn', `Fila ${row.id}: servidor Discord no encontrado (${row.discord_guild_id})`);
+    return;
+  }
+  const channel = guild.channels.cache.get(row.channel_id);
+  if (!channel?.isTextBased()) {
+    blog(log, 'warn', `Fila ${row.id}: canal inválido o sin permiso (${row.channel_id})`);
+    return;
+  }
+
+  const track = await resolveTrackContext(row);
+  const scope = track.allianceId
+    ? `alianza ${track.allianceTag || track.allianceId.slice(0, 8)}`
+    : `gremio ${track.guildName}`;
+  blog(log, 'info', `Fila ${row.id}: monitoreando ${scope}`);
+
+  if (track.allianceId && track.allianceId !== row.alliance_id) {
+    getDb()
+      .prepare('UPDATE battle_tracking SET alliance_id = ?, alliance_tag = ? WHERE id = ?')
+      .run(track.allianceId, track.allianceTag || null, row.id);
+    blog(log, 'info', `Fila ${row.id}: alianza actualizada → ${track.allianceTag}`);
+  }
+
+  const battles = await fetchBattlesForTrack(
+    { guildId: track.albionGuildId, allianceId: track.allianceId },
+    log,
+  );
+  if (!battles.length) {
+    blog(log, 'info', `Fila ${row.id}: sin batallas recientes en API`);
+    getDb()
+      .prepare('UPDATE battle_tracking SET last_check = ? WHERE id = ?')
+      .run(Date.now(), row.id);
+    return;
+  }
 
   let sent = parseSent(row);
   const sentSet = new Set(sent);
   const newBattles = [];
+  const skipped = [];
 
   for (const b of battles) {
     const bid = String(b.id);
     if (sentSet.has(bid)) continue;
-    const count =
-      row.track_type === 'alliance'
-        ? countAlliancePlayers(b, row.alliance_id)
-        : countGuildPlayers(b, row.albion_guild_id);
+    const count = track.allianceId
+      ? countAlliancePlayers(b, track.allianceId)
+      : countGuildPlayers(b, track.albionGuildId);
     sentSet.add(bid);
-    if (count >= MIN_PLAYERS) newBattles.push(b);
+    if (count >= MIN_PLAYERS) {
+      newBattles.push({ battle: b, count });
+    } else {
+      skipped.push({ id: bid, count });
+    }
+  }
+
+  if (skipped.length) {
+    blog(
+      log,
+      'info',
+      `Fila ${row.id}: ${skipped.length} batalla(s) bajo umbral (<${MIN_PLAYERS}): ${skipped.map((s) => `${s.id}(${s.count})`).join(', ')}`,
+    );
   }
 
   sent = [...sentSet].slice(-50);
@@ -199,16 +255,30 @@ async function processRow(getDb, row, client, log) {
     .prepare('UPDATE battle_tracking SET sent_battles = ?, last_check = ? WHERE id = ?')
     .run(JSON.stringify(sent), Date.now(), row.id);
 
-  for (const b of newBattles.reverse()) {
+  if (!newBattles.length) {
+    blog(log, 'info', `Fila ${row.id}: ciclo OK, 0 reportes nuevos`);
+    return;
+  }
+
+  blog(log, 'info', `Fila ${row.id}: publicando ${newBattles.length} batalla(s) nueva(s)`);
+
+  for (const { battle: b, count } of newBattles.reverse()) {
     try {
-      if (row.track_type === 'alliance') {
-        await sendAllianceBattle(channel, b, row.alliance_id, row.alliance_tag || 'Alianza', log);
+      if (track.allianceId) {
+        await sendAllianceBattle(
+          channel,
+          b,
+          track.allianceId,
+          track.allianceTag || 'Alianza',
+          log,
+        );
       } else {
-        await sendGuildBattle(channel, b, row.albion_guild_id, log);
+        await sendGuildBattle(channel, b, track.albionGuildId, log);
       }
+      blog(log, 'info', `Fila ${row.id}: batalla ${b.id} publicada (${count} jugadores)`);
       await new Promise((r) => setTimeout(r, 1000));
     } catch (e) {
-      log.warn(`Battle notify: ${e.message}`);
+      blog(log, 'warn', `Fila ${row.id}: error al publicar batalla ${b.id}: ${e.message}`);
     }
   }
 }
@@ -219,28 +289,54 @@ async function runMonitor(getDb, client, log) {
 
   const now = Date.now();
   const eligible = rows.filter((r) => now - (r.last_check || 0) >= CHECK_COOLDOWN_MS);
-  if (!eligible.length) return;
+  if (!eligible.length) {
+    const next = rows.reduce((best, r) => {
+      const wait = CHECK_COOLDOWN_MS - (now - (r.last_check || 0));
+      return wait < best.wait ? { id: r.id, wait } : best;
+    }, { id: null, wait: Infinity });
+    blog(
+      log,
+      'info',
+      `Ciclo: ${rows.length} seguimiento(s), 0 elegibles (próximo fila ${next.id} en ~${Math.ceil(next.wait / 1000)}s)`,
+    );
+    return;
+  }
 
   const row = eligible[cycleIndex % eligible.length];
+  const slot = (cycleIndex % eligible.length) + 1;
   cycleIndex++;
+  blog(
+    log,
+    'info',
+    `Ciclo #${cycleIndex}: fila ${row.id} (${slot}/${eligible.length} elegibles, ${rows.length} total)`,
+  );
   try {
     await processRow(getDb, row, client, log);
   } catch (e) {
-    log.warn(`Battle monitor ${row.id}: ${e.message}`);
+    blog(log, 'warn', `Ciclo fila ${row.id} error: ${e.message}`);
+    if (e.stack) blog(log, 'warn', e.stack);
   }
+}
+
+function trackLabel(row) {
+  return row.alliance_tag || row.albion_guild_id;
 }
 
 const commands = [
   {
     data: new SlashCommandBuilder()
       .setName('seguir_batalla')
-      .setDescription('Monitorea batallas de un gremio de Albion')
+      .setDescription('Monitorea batallas de tu gremio (y su alianza si aplica)')
       .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
       .addChannelOption((o) =>
-        o.setName('canal').setDescription('Canal de notificaciones').addChannelTypes(ChannelType.GuildText).setRequired(true),
+        o
+          .setName('canal')
+          .setDescription('Canal de notificaciones')
+          .addChannelTypes(ChannelType.GuildText)
+          .setRequired(true),
       )
       .addStringOption((o) =>
-        o.setName('gremio_id').setDescription('ID del gremio en Albion').setRequired(true),
+        o.setName('gremio_id').setDescription('ID de tu gremio en Albion').setRequired(true),
       ),
     async run(ix, { getDb, log }) {
       const canal = ix.options.getChannel('canal');
@@ -249,80 +345,25 @@ const commands = [
         return ix.reply({ content: '❌ ID de gremio inválido.', ephemeral: true });
       }
 
-      const check = await apiGet(`${API}/guilds/${gremioId}`);
-      if (!check.ok) {
-        return ix.reply({ content: '❌ Gremio no encontrado en la API.', ephemeral: true });
-      }
-
-      const dup = getDb()
-        .prepare(
-          'SELECT 1 FROM battle_tracking WHERE discord_guild_id = ? AND track_type = ? AND albion_guild_id = ?',
-        )
-        .get(gid(ix.guildId), 'guild', gremioId);
-      if (dup) {
-        return ix.reply({ content: '❌ Ese gremio ya está en seguimiento.', ephemeral: true });
-      }
-
-      const info = await apiGet(`${API}/battles?range=week&offset=0&limit=1&sort=totalfame&guildId=${gremioId}`);
-      const r = getDb()
-        .prepare(`
-          INSERT INTO battle_tracking (discord_guild_id, track_type, channel_id, albion_guild_id, sent_battles)
-          VALUES (?, 'guild', ?, ?, '[]')
-        `)
-        .run(gid(ix.guildId), String(canal.id), gremioId);
-
-      await seedBattles(getDb, r.lastInsertRowid, gremioId);
-
-      const guildName = check.data?.Name || gremioId;
-      await ix.reply({
-        content:
-          `✅ Seguimiento de batallas activo para **${guildName}**\n` +
-          `Canal: ${canal}` +
-          (info.ok && info.data?.length ? '' : '\n⚠️ Sin batallas recientes en la API.'),
-        ephemeral: false,
-      });
-    },
-  },
-  {
-    data: new SlashCommandBuilder()
-      .setName('seguir_batalla_alianza')
-      .setDescription('Monitorea batallas de una alianza (ID de cualquier gremio miembro)')
-      .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
-      .addChannelOption((o) =>
-        o.setName('canal').setDescription('Canal de notificaciones').addChannelTypes(ChannelType.GuildText).setRequired(true),
-      )
-      .addStringOption((o) =>
-        o
-          .setName('gremio_id')
-          .setDescription('ID de la alianza o de un gremio miembro')
-          .setRequired(true),
-      ),
-    async run(ix, { getDb, log }) {
-      const canal = ix.options.getChannel('canal');
-      const gremioId = ix.options.getString('gremio_id').trim();
-      if (gremioId.length < 10) {
-        return ix.reply({ content: '❌ ID inválido.', ephemeral: true });
-      }
-
-      const resolved = await resolveBattleTrackInput('alliance', gremioId);
+      const resolved = await resolveGuildBattleInput(gremioId);
       if (resolved.error) {
         return ix.reply({ content: `❌ ${resolved.error}`, ephemeral: true });
       }
 
       const dup = getDb()
         .prepare(
-          'SELECT 1 FROM battle_tracking WHERE discord_guild_id = ? AND track_type = ? AND alliance_id = ?',
+          'SELECT 1 FROM battle_tracking WHERE discord_guild_id = ? AND albion_guild_id = ?',
         )
-        .get(gid(ix.guildId), 'alliance', resolved.allianceId);
+        .get(gid(ix.guildId), resolved.albionGuildId);
       if (dup) {
-        return ix.reply({ content: '❌ Esa alianza ya está en seguimiento.', ephemeral: true });
+        return ix.reply({ content: '❌ Ese gremio ya está en seguimiento.', ephemeral: true });
       }
 
       const r = getDb()
         .prepare(`
           INSERT INTO battle_tracking (
             discord_guild_id, track_type, channel_id, albion_guild_id, alliance_id, alliance_tag, sent_battles
-          ) VALUES (?, 'alliance', ?, ?, ?, ?, '[]')
+          ) VALUES (?, 'guild', ?, ?, ?, ?, '[]')
         `)
         .run(
           gid(ix.guildId),
@@ -332,11 +373,20 @@ const commands = [
           resolved.allianceTag,
         );
 
-      await seedBattles(getDb, r.lastInsertRowid, resolved.albionGuildId);
+      await seedBattles(getDb, r.lastInsertRowid, resolved, log);
+      blog(
+        log,
+        'info',
+        `Seguimiento creado fila ${r.lastInsertRowid}: ${resolved.guildName}${resolved.allianceTag ? ` / ${resolved.allianceTag}` : ''} → ${canal.id}`,
+      );
+
+      const allianceNote = resolved.allianceId
+        ? `\nSe monitorea el gremio y la alianza **${resolved.allianceTag}**.`
+        : '\nSe monitorea solo el gremio (sin alianza).';
 
       await ix.reply({
         content:
-          `✅ Seguimiento de alianza **${resolved.allianceTag}** activo\n` +
+          `✅ Seguimiento activo para **${resolved.guildName}**${allianceNote}\n` +
           `Canal: ${canal}`,
         ephemeral: false,
       });
@@ -354,21 +404,14 @@ const commands = [
       }
       if (list.length === 1) {
         getDb().prepare('DELETE FROM battle_tracking WHERE id = ?').run(list[0].id);
-        const label =
-          list[0].track_type === 'alliance'
-            ? `alianza ${list[0].alliance_tag}`
-            : `gremio ${list[0].albion_guild_id}`;
-        return ix.reply({ content: `✅ Detenido: ${label}`, ephemeral: true });
+        return ix.reply({ content: `✅ Detenido: ${trackLabel(list[0])}`, ephemeral: true });
       }
       const menu = new StringSelectMenuBuilder()
         .setCustomId(`${PREFIX}:stop`)
         .setPlaceholder('Qué detener')
         .addOptions(
           list.map((e) => ({
-            label:
-              e.track_type === 'alliance'
-                ? `Alianza ${e.alliance_tag || e.alliance_id}`.slice(0, 100)
-                : `Gremio ${e.albion_guild_id}`.slice(0, 100),
+            label: trackLabel(e).slice(0, 100),
             value: String(e.id),
           })),
         );
@@ -384,7 +427,7 @@ const commands = [
 module.exports = {
   id: 'battle',
   commands,
-  resolveBattleTrackInput,
+  resolveGuildBattleInput,
   seedBattles,
 
   onGuildRemove(guildId, { getDb }) {
@@ -392,8 +435,9 @@ module.exports = {
   },
 
   onInit(client, { getDb, log }) {
+    const total = getDb().prepare('SELECT COUNT(*) AS n FROM battle_tracking').get()?.n || 0;
     setInterval(() => runMonitor(getDb, client, log), 60 * 1000);
-    log.info('Battle monitor cada 1 min');
+    blog(log, 'info', `Monitor activo cada 60s (${total} seguimiento(s) registrados)`);
   },
 
   async handleInteraction(ix, ctx) {

@@ -44,8 +44,7 @@ const CATEGORIES = {
     label: 'Battle Report',
     emoji: '🛡️',
     commands: [
-      { name: '/seguir_batalla', desc: 'Monitorea batallas de un gremio (canal + gremio_id).' },
-      { name: '/seguir_batalla_alianza', desc: 'Monitorea batallas de la alianza (ID alianza o gremio miembro).' },
+      { name: '/seguir_batalla', desc: 'Monitorea batallas de tu gremio y su alianza si aplica (canal + gremio_id).' },
       { name: '/detener_batalla', desc: 'Detiene el seguimiento de batallas.' },
     ],
   },

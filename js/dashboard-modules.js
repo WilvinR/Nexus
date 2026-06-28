@@ -402,7 +402,7 @@ function initModuleModals(deps) {
     function render() {
       let html = '<div class="modal-section"><h3>Seguimiento de batallas</h3>';
       for (const t of tracks) {
-        const label = `${t.trackType === 'alliance' ? '🌐' : '🏰'} ${t.label || t.albionGuildId}`;
+        const label = `🏰 ${t.label || t.albionGuildId}`;
         html += capsule(label, t.id);
       }
       html += '<button type="button" class="btn btn-accent btn-sm" data-bat="add">+ Añadir Seguimiento de Batalla</button>';
@@ -427,39 +427,18 @@ function initModuleModals(deps) {
 
     function showBatForm(row, refresh) {
       const slot = document.getElementById('bat-form-slot');
-      const idValue = row?.trackType === 'alliance' && row?.allianceId ? row.allianceId : row?.albionGuildId || '';
       slot.innerHTML = `<div class="sub-form">
         <h4>${row ? 'Editar' : 'Añadir'} seguimiento</h4>
-        <label class="form-label">Tipo
-          <select class="form-input" id="bf-type">
-            <option value="guild">Gremio</option>
-            <option value="alliance">Alianza</option>
-          </select>
+        <label class="form-label">ID de tu gremio
+          <input class="form-input" id="bf-id" value="${escapeHtml(row?.albionGuildId || '')}" autocomplete="off" spellcheck="false">
         </label>
-        <label class="form-label">Nombre (opcional)<input class="form-input" id="bf-name" value="${escapeHtml(row?.label && row.label !== row.albionGuildId ? row.label : '')}"></label>
-        <label class="form-label" id="bf-id-label">ID del gremio en Albion</label>
-        <input class="form-input" id="bf-id" value="${escapeHtml(idValue)}" autocomplete="off" spellcheck="false">
-        <p class="modal-meta" id="bf-id-hint">UUID del gremio — usa /informacion_gremio para obtenerlo.</p>
+        <p class="modal-meta">Usa /informacion_gremio → Copiar ID gremio. Se monitoreará el gremio y su alianza si aplica.</p>
         ${channelSelect('bf-ch', row?.channelId, 'Canal de reportes')}
         <div class="form-actions">
           <button type="button" class="btn btn-accent" data-act="save">Guardar</button>
           <button type="button" class="btn" data-act="cancel">Cancelar</button>
         </div>
       </div>`;
-      const typeSel = document.getElementById('bf-type');
-      if (row?.trackType) typeSel.value = row.trackType;
-
-      function updateBfIdHint() {
-        const isAlliance = typeSel.value === 'alliance';
-        document.getElementById('bf-id-label').textContent = isAlliance
-          ? 'ID de la alianza en Albion'
-          : 'ID del gremio en Albion';
-        document.getElementById('bf-id-hint').textContent = isAlliance
-          ? 'Pega el ID de la alianza (ej. Titanomaquia). También acepta ID de un gremio miembro.'
-          : 'UUID del gremio — usa /informacion_gremio → Copiar ID gremio.';
-      }
-      typeSel.addEventListener('change', updateBfIdHint);
-      updateBfIdHint();
 
       slot.querySelector('[data-act="cancel"]').onclick = () => {
         slot.innerHTML = '';
@@ -469,11 +448,9 @@ function initModuleModals(deps) {
         const payload = {
           albionGuildId: document.getElementById('bf-id').value.trim(),
           channelId: document.getElementById('bf-ch').value,
-          trackType: typeSel.value,
-          name: document.getElementById('bf-name').value.trim(),
         };
         if (!payload.albionGuildId || !payload.channelId) {
-          alert('Canal e ID son obligatorios.');
+          alert('Canal e ID del gremio son obligatorios.');
           return;
         }
         setBtnLoading(saveBtn, true);
@@ -485,7 +462,6 @@ function initModuleModals(deps) {
                 body: JSON.stringify({
                   channelId: payload.channelId,
                   albionGuildId: payload.albionGuildId,
-                  trackType: payload.trackType,
                 }),
               })
             : await api(`/api/guilds/${modalGuildId}/battle/tracking`, {

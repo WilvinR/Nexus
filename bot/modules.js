@@ -30,7 +30,6 @@ const COMMAND_TO_MODULE = {
   auditoria_bal: 'bal',
   pagar: 'bal',
   seguir_batalla: 'battle',
-  seguir_batalla_alianza: 'battle',
   detener_batalla: 'battle',
   config_canal: 'sanciones',
   infraccion: 'sanciones',
